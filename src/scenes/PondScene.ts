@@ -9,12 +9,12 @@
  * Ghibli-inspired water effect (layered translucent fills + gentle animation).
  */
 
-import { isoToScreen, screenToIso, isoDepth, TILE_W, TILE_H, HALF_W, HALF_H } from '../utils/iso.js';
-import StorageSystem from '../systems/StorageSystem.js';
-import EcosystemSystem from '../systems/EcosystemSystem.js';
-import FishSystem from '../systems/FishSystem.js';
-import PlantSystem from '../systems/PlantSystem.js';
-import AudioManager from '../utils/audio.js';
+import { isoToScreen, screenToIso, isoDepth, TILE_W, TILE_H, HALF_W, HALF_H } from '../utils/iso';
+import StorageSystem from '../systems/StorageSystem';
+import EcosystemSystem from '../systems/EcosystemSystem';
+import FishSystem from '../systems/FishSystem';
+import PlantSystem from '../systems/PlantSystem';
+import AudioManager from '../utils/audio';
 
 // ── Ghibli-ish color palette ───────────────────────────────────────────────
 const COLORS = {

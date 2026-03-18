@@ -2,9 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Pond Quest — Tend Your Pond</title>
   <meta name="description" content="A relaxing isometric pond curation simulator. Grow plants, introduce fish, and balance a living ecosystem grounded in real pond science." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Pond Quest" />
+  <meta property="og:description" content="Build and tend a relaxing virtual pond. Real ecosystem science." />
+  <meta property="og:image" content="https://pond.quest/og-image.png" />
+
+  <!-- Farcaster Mini App embed metadata -->
+  <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://pond.quest/embed-image.png","button":{"title":"🐟 Open Pond Quest","action":{"type":"launch_frame","url":"https://pond.quest","name":"Pond Quest","splashBackgroundColor":"#1a2a1a"}}}' />
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
@@ -25,9 +34,7 @@
 <body>
   <div id="game-container"></div>
 
-  <!-- Phaser 3 from CDN (no build step) -->
-  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
-  <!-- Bootstrap game via ES modules -->
-  <script type="module" src="src/main.js"></script>
+  <!-- Vite entry point -->
+  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

@@ -6,9 +6,9 @@
  * Plants are placed at sub-tile positions within the 4×4 macro grid.
  */
 
-import speciesDefs from '../data/species.js';
-import { generateId } from './StorageSystem.js';
-import { subTileToScreen, isoToScreen, HALF_W, HALF_H } from '../utils/iso.js';
+import speciesDefs from '../data/species';
+import { generateId } from './StorageSystem';
+import { subTileToScreen, isoToScreen, HALF_W, HALF_H } from '../utils/iso';
 
 // Growth tick: advance plants every in-game day (1440 minutes)
 const GROWTH_RATE_PER_MINUTE = 1 / 1440;

@@ -11,9 +11,9 @@
  * Fish also occasionally jump (projectile arc, splash particle).
  */
 
-import speciesDefs from '../data/species.js';
-import { generateId } from './StorageSystem.js';
-import { isoToScreen, TILE_W, TILE_H } from '../utils/iso.js';
+import speciesDefs from '../data/species';
+import { generateId } from './StorageSystem';
+import { isoToScreen, TILE_W, TILE_H } from '../utils/iso';
 
 export default class FishSystem {
   /**

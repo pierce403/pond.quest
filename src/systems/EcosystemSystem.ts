@@ -13,8 +13,8 @@
  * Chemistry is updated each game-tick (1 real second = 1 in-game minute by default).
  */
 
-import chemDefs from '../data/chemistry.js';
-import speciesDefs from '../data/species.js';
+import chemDefs from '../data/chemistry';
+import speciesDefs from '../data/species';
 
 export default class EcosystemSystem {
   constructor(storage) {
