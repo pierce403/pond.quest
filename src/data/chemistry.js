@@ -1,0 +1,82 @@
+/**
+ * Chemistry constants, thresholds, and simulation parameters.
+ * Grounded in APHA Standard Methods for freshwater ponds.
+ * Tick = 1 in-game minute.
+ *
+ * Exported as a JS module for browser compatibility (no JSON import assertions).
+ */
+
+const chemDefs = {
+  time: {
+    realSecondsPerGameMinute: 1,
+    ticksPerGameDay: 1440
+  },
+
+  initial: {
+    pH: 7.4,
+    ammonia: 0.0,
+    nitrite: 0.0,
+    nitrate: 0.0,
+    dissolvedOxygen: 8.5,
+    bacteriaLevel: 0.0
+  },
+
+  thresholds: {
+    pH: {
+      ideal: [7.0, 8.0],
+      warning: [6.5, 8.5],
+      critical_low: 6.0,
+      critical_high: 9.0
+    },
+    ammonia: {
+      ideal_max: 0.02,
+      warning_max: 0.1,
+      critical_max: 0.5
+    },
+    nitrite: {
+      ideal_max: 0.1,
+      warning_max: 0.5,
+      critical_max: 1.0
+    },
+    nitrate: {
+      ideal_max: 20,
+      warning_max: 40,
+      critical_max: 80
+    },
+    dissolvedOxygen: {
+      ideal_min: 7.0,
+      warning_min: 5.0,
+      critical_min: 3.0,
+      saturation: 10.5
+    }
+  },
+
+  simulation: {
+    // Nitrogen cycle: NH3 -> NO2 (Nitrosomonas) -> NO3 (Nitrobacter). Boyd & Tucker, 1998.
+    bacteriaGrowthRate: 0.0001,
+    bacteriaMaxLevel: 1.0,
+    bacteriaColonizationDays: 30,
+
+    ammoniaToNitriteRate: 0.15,
+    nitriteToNitrateRate: 0.10,
+
+    pHDriftRate: 0.0001,
+    pHTargetNatural: 7.2,
+
+    doAtmosphericEquilibrium: 8.5,
+    doPassiveReaeration: 0.001,
+
+    waterVolumePerTile: 1000,
+
+    fishStressThreshold: {
+      ammonia: 0.05,
+      nitrite: 0.25,
+      nitrate: 30,
+      pH_low: 6.5,
+      pH_high: 8.5,
+      do_low: 5.0
+    }
+  }
+};
+
+export default chemDefs;

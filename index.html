@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pond Quest — Tend Your Pond</title>
+  <meta name="description" content="A relaxing isometric pond curation simulator. Grow plants, introduce fish, and balance a living ecosystem grounded in real pond science." />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #1a2a1a;
+      overflow: hidden;
+      font-family: 'Georgia', serif;
+    }
+    #game-container {
+      width: 100%; height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="game-container"></div>
+
+  <!-- Phaser 3 from CDN (no build step) -->
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <!-- Bootstrap game via ES modules -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
