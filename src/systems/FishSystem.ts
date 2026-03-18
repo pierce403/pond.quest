@@ -122,9 +122,9 @@ export default class FishSystem {
     gfx.fillStyle(color, 0.92);
     gfx.fillEllipse(cx, cy, s * 2, s);
 
-    // Tail fin
+    // Tail fin (fans outward from body)
     gfx.fillStyle(spec.color, 0.75);
-    gfx.fillTriangle(cx - s, cy - s * 0.4, cx - s, cy + s * 0.4, cx - s * 1.6, cy);
+    gfx.fillTriangle(cx - s * 0.8, cy, cx - s * 1.7, cy - s * 0.6, cx - s * 1.7, cy + s * 0.6);
 
     // Eye
     gfx.fillStyle(0x1a1a2e, 1);
@@ -333,9 +333,9 @@ export default class FishSystem {
     // Redraw if stress changed significantly (avoid redrawing every frame)
     this._drawFishShape(obj.gfx, spec, 0, 0, f.stress || 0);
 
-    // Flip graphics based on movement direction
+    // Flip graphics based on movement direction (only flip gfx so text stays readable)
     const movingLeft = (f.vx - f.vy) < 0;
-    obj.container.setScale(movingLeft ? -1 : 1, 1);
+    obj.gfx.setScale(movingLeft ? -1 : 1, 1);
   }
 
   /** Remove a fish entity and its sprite */
