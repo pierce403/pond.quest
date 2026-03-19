@@ -22,7 +22,7 @@
 
 import speciesDefs from '../data/species';
 import { generateId } from './StorageSystem';
-import { isoToScreen } from '../utils/iso';
+import { isoToScreen, screenToIso } from '../utils/iso';
 
 // ── Per-species name pools ───────────────────────────────────────────────────
 const FISH_NAMES: Record<string, string[]> = {
@@ -45,6 +45,9 @@ const TURN_INTERVAL_VARIANCE = 0.5;
 const TURN_THRESHOLD_RADIANS = Math.PI / 8;
 const FISH_VISUAL_REFRESH_MS = 33;
 const MAX_FISH_TEXTURE_DIMENSION = 160;
+const POKE_FLEE_DURATION = 2.2;
+const POKE_FLEE_BURST_MULTIPLIER = 1.9;
+const POKE_FLEE_STEER_STRENGTH = 1.2;
 
 function normalizeAngle(angle: number): number {
   while (angle <= -Math.PI) angle += Math.PI * 2;
@@ -340,8 +343,8 @@ export default class FishSystem {
     container.on('pointerout', () => {
       this.scene.tweens.add({ targets: glowRing, alpha: 0, duration: 300 });
     });
-    container.on('pointerdown', () => {
-      this._pokeFish(fishData.id);
+    container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      this._pokeFish(fishData.id, pointer.worldX, pointer.worldY);
       this._openInfoPanel(fishData.id);
     });
 
@@ -454,8 +457,10 @@ export default class FishSystem {
 
     if (f.fleeTimer > 0) {
       f.fleeTimer = Math.max(0, f.fleeTimer - dt);
-      const fleeStr = Math.min(1, f.fleeTimer / 0.5) * 0.3;
-      desiredVx += f.fleeVx * fleeStr; desiredVy += f.fleeVy * fleeStr;
+      const fleeRatio = Phaser.Math.Clamp(f.fleeTimer / POKE_FLEE_DURATION, 0, 1);
+      const fleeStr = 0.18 + Math.pow(fleeRatio, 0.7) * POKE_FLEE_STEER_STRENGTH;
+      desiredVx += f.fleeVx * fleeStr;
+      desiredVy += f.fleeVy * fleeStr;
     }
 
     if (f.x < turnMargin) desiredVx += 0.05 + (turnMargin - f.x) * 0.08;
@@ -485,9 +490,17 @@ export default class FishSystem {
     }
 
     const currentSpeed = Math.hypot(f.vx, f.vy);
-    let targetSpeed = f.fleeTimer > 0
-      ? maxSpeed
-      : Math.max(minCruiseSpeed, Math.min(maxSpeed, currentSpeed * 0.98 + Math.hypot(desiredVx, desiredVy) * 1.2));
+    let targetSpeed;
+    if (f.fleeTimer > 0) {
+      const fleeRatio = Phaser.Math.Clamp(f.fleeTimer / POKE_FLEE_DURATION, 0, 1);
+      const fleeBoost = 1 + Math.pow(fleeRatio, 0.75) * (POKE_FLEE_BURST_MULTIPLIER - 1);
+      targetSpeed = maxSpeed * fleeBoost;
+    } else {
+      targetSpeed = Math.max(
+        minCruiseSpeed,
+        Math.min(maxSpeed, currentSpeed * 0.98 + Math.hypot(desiredVx, desiredVy) * 1.2)
+      );
+    }
 
     if (headingOutward && f.turnCooldown > 0) {
       targetSpeed = 0;
@@ -649,20 +662,30 @@ export default class FishSystem {
 
   // ── Poke ──────────────────────────────────────────────────────────────────
 
-  _pokeFish(fishId: string) {
+  _pokeFish(fishId: string, screenX?: number, screenY?: number) {
     const f = this.storage.getFish().find((f: any) => f.id === fishId);
     if (!f) return;
     const spec = this.speciesDefs[f.species];
     const fleeDist = spec.personality === 'skittish' ? 1.5 : spec.personality === 'calm' ? 0.6 : 1.0;
-    const angle = Math.random() * Math.PI * 2;
-    const fleeSpeed = Math.max(spec.speed / 100, Math.hypot(f.vx ?? 0, f.vy ?? 0));
+    const pokeIso = Number.isFinite(screenX) && Number.isFinite(screenY)
+      ? screenToIso(screenX as number, screenY as number, this.bounds.originX, this.bounds.originY)
+      : null;
+    const awayX = pokeIso ? f.x - pokeIso.isoX : 0;
+    const awayY = pokeIso ? f.y - pokeIso.isoY : 0;
+    const angle = Math.hypot(awayX, awayY) > 0.02
+      ? Math.atan2(awayY, awayX) + (Math.random() - 0.5) * 0.24
+      : Math.random() * Math.PI * 2;
+    const fleeSpeed = Math.max(
+      (spec.speed / 100) * POKE_FLEE_BURST_MULTIPLIER,
+      Math.hypot(f.vx ?? 0, f.vy ?? 0) * 1.35
+    );
     f.headingAngle = angle;
     f.vx = Math.cos(angle) * fleeSpeed;
     f.vy = Math.sin(angle) * fleeSpeed;
-    f.wanderAngle = angle;
+    f.wanderAngle = angle + (Math.random() - 0.5) * 0.18;
     f.turnCooldown = this._nextTurnCooldown();
     f.fleeVx = Math.cos(angle) * fleeDist; f.fleeVy = Math.sin(angle) * fleeDist;
-    f.fleeTimer = 1.2;
+    f.fleeTimer = POKE_FLEE_DURATION;
     f.forceImmediateTurn = false;
     this.storage.updateFish(f.id, {
       vx: f.vx,

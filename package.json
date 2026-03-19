@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "generate:social-preview": "python3 scripts/generate_social_preview.py",
+    "verify:audio-flee": "node scripts/verify_audio_flee.mjs",
     "verify:fish-transparency": "node scripts/verify_fish_transparency.mjs",
     "verify:placement-social": "node scripts/verify_placement_and_social.mjs"
   },

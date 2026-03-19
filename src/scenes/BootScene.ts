@@ -57,12 +57,10 @@ export default class BootScene extends Phaser.Scene {
       this.load.image(`fish_${sp}`, `assets/images/fish_${sp}_e.png`);
     }
 
-    // ── Audio assets (generated procedurally via Web Audio later) ──────
-    // Placeholder: we'll generate ambient audio at runtime using Web Audio API
-    // If real audio files exist in assets/audio/, load them here:
-    // this.load.audio('ambient_water', 'assets/audio/water_loop.mp3');
-    // this.load.audio('ambient_frogs', 'assets/audio/frogs_loop.mp3');
-    // this.load.audio('sfx_splash', 'assets/audio/splash.mp3');
+    // ── Audio assets ──────────────────────────────────────────────────────
+    // Keep ambient layers procedural for now, but use real one-shot SFX.
+    this.load.audio('sfx_plop', 'audio/sfx_plop.ogg');
+    this.load.audio('sfx_splash', 'audio/sfx_splash.ogg');
 
     // ── Generate procedural audio ────────────────────────────────────────
     this._generateProceduralAudio();
@@ -76,8 +74,6 @@ export default class BootScene extends Phaser.Scene {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       this._createWaterLoop(ctx, 'ambient_water', 6.0);
-      this._createSplashBuffer(ctx, 'sfx_splash', 0.45);
-      this._createPlopBuffer(ctx, 'sfx_plop', 0.28);
       this._createChiptuneLoop(ctx, 'bgm_chill', 8.0);
     } catch (e) {
       console.warn('[BootScene] Web Audio not available:', e);
