@@ -134,6 +134,16 @@ export default class FishSystem {
     return Math.max(0.38, spec.size / 32);
   }
 
+  _getCollisionRadius(spec: any) {
+    return Math.max(0.12, spec.size / 85);
+  }
+
+  _clampFishToPond(f: any, spec: any) {
+    const inset = this._getSwimInset(spec);
+    f.x = Phaser.Math.Clamp(f.x, inset, this.bounds.gridW - inset);
+    f.y = Phaser.Math.Clamp(f.y, inset, this.bounds.gridH - inset);
+  }
+
   _ensureFishMotionState(f: any, spec: any) {
     const maxSpeed = spec.speed / 100;
     const currentSpeed = Math.hypot(f.vx ?? 0, f.vy ?? 0);
@@ -382,6 +392,14 @@ export default class FishSystem {
         this._maybeJump(f, dt);
       }
       this._positionFishContainer(f);
+    });
+
+    this._resolveFishCollisions(fish);
+
+    fish.forEach((f: any) => {
+      if (!f.jumping) {
+        this._positionFishContainer(f);
+      }
       if (shouldRefreshVisuals) {
         this._refreshFishGraphics(f);
       }
@@ -493,6 +511,100 @@ export default class FishSystem {
       fleeTimer: f.fleeTimer,
       turnCooldown: f.turnCooldown,
       forceImmediateTurn: f.forceImmediateTurn,
+    });
+  }
+
+  _resolveFishCollisions(allFish: any[]) {
+    const changed = new Set<string>();
+    const PASSES = 2;
+
+    for (let pass = 0; pass < PASSES; pass += 1) {
+      let resolvedInPass = false;
+
+      for (let i = 0; i < allFish.length; i += 1) {
+        const a = allFish[i];
+        if (a.jumping) continue;
+        const specA = this.speciesDefs[a.species];
+        if (!specA) continue;
+
+        for (let j = i + 1; j < allFish.length; j += 1) {
+          const b = allFish[j];
+          if (b.jumping) continue;
+          const specB = this.speciesDefs[b.species];
+          if (!specB) continue;
+
+          const minDistance = this._getCollisionRadius(specA) + this._getCollisionRadius(specB);
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          let distance = Math.hypot(dx, dy);
+
+          if (!Number.isFinite(distance) || distance >= minDistance) {
+            continue;
+          }
+
+          if (distance < 0.0001) {
+            const fallbackAngle = Number.isFinite(a.headingAngle)
+              ? a.headingAngle
+              : Number.isFinite(b.headingAngle)
+                ? b.headingAngle + Math.PI
+                : Math.random() * Math.PI * 2;
+            dx = Math.cos(fallbackAngle);
+            dy = Math.sin(fallbackAngle);
+            distance = 1;
+          }
+
+          const nx = dx / distance;
+          const ny = dy / distance;
+          const overlap = minDistance - distance;
+
+          a.x -= nx * overlap * 0.5;
+          a.y -= ny * overlap * 0.5;
+          b.x += nx * overlap * 0.5;
+          b.y += ny * overlap * 0.5;
+
+          this._clampFishToPond(a, specA);
+          this._clampFishToPond(b, specB);
+
+          const aTowardB = a.vx * nx + a.vy * ny;
+          if (aTowardB > 0) {
+            a.vx -= nx * aTowardB * 0.7;
+            a.vy -= ny * aTowardB * 0.7;
+          }
+
+          const bTowardA = b.vx * nx + b.vy * ny;
+          if (bTowardA < 0) {
+            b.vx -= nx * bTowardA * 0.7;
+            b.vy -= ny * bTowardA * 0.7;
+          }
+
+          if (Math.hypot(a.vx, a.vy) > 0.001) {
+            a.headingAngle = Math.atan2(a.vy, a.vx);
+          }
+          if (Math.hypot(b.vx, b.vy) > 0.001) {
+            b.headingAngle = Math.atan2(b.vy, b.vx);
+          }
+
+          changed.add(a.id);
+          changed.add(b.id);
+          resolvedInPass = true;
+        }
+      }
+
+      if (!resolvedInPass) {
+        break;
+      }
+    }
+
+    changed.forEach((fishId) => {
+      const fish = allFish.find((entry: any) => entry.id === fishId);
+      if (!fish) return;
+      this.storage.updateFish(fish.id, {
+        x: fish.x,
+        y: fish.y,
+        vx: fish.vx,
+        vy: fish.vy,
+        headingAngle: fish.headingAngle,
+      });
     });
   }
 
