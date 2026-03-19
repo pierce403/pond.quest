@@ -11,8 +11,8 @@
  * Fish also occasionally jump (projectile arc, splash particle).
  *
  * --- 8-directional sprites ---
- * 4 base textures per species: e, ne, n, se
- * 4 mirrored dirs: w=flip(e), nw=flip(ne), sw=flip(se), s=flip(n)
+ * 5 base textures per species: e, ne, n, se, s
+ * 3 mirrored dirs: w=flip(e), nw=flip(ne), sw=flip(se)
  * Direction selected from iso-space velocity each frame.
  *
  * --- Fish info panel ---
@@ -36,9 +36,9 @@ const FISH_NAMES: Record<string, string[]> = {
 
 // Direction lookup: 8 compass points, ordered clockwise starting East
 // Index 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
-const DIR_BASES  = ['e',  'se',  'n',  'se',  'e',  'ne',  'n',  'ne'];
-const DIR_FLIPX  = [false, false, true, true,  true, true,  false, false];
-// Note: S uses n+flipX (back view flipped), SW uses se+flipX, NW uses ne+flipX, W uses e+flipX
+const DIR_BASES  = ['e',  'se',  's',  'se',  'e',  'ne',  'n',  'ne'];
+const DIR_FLIPX  = [false, false, false, true,  true, true,  false, false];
+// Note: SW uses se+flipX, NW uses ne+flipX, W uses e+flipX
 
 const TURN_INTERVAL_SECONDS = 2.0;
 const TURN_INTERVAL_VARIANCE = 0.5;

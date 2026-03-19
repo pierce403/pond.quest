@@ -44,11 +44,11 @@ export default class BootScene extends Phaser.Scene {
       fill.fillRoundedRect(barX + 2, barY + 2, (barW - 4) * pct, barH - 4, 6);
     });
 
-    // ── Fish sprites — 4 directional views per species (AI-generated PNGs) ─
-    // Directions: e(right), ne(upper-right), n(away/back), se(lower-right)
-    // w/nw/sw/s are derived by flipping the corresponding base sprite
+    // ── Fish sprites — 5 directional views per species (AI-generated PNGs) ─
+    // Directions: e(right), ne(upper-right), n(away/back), se(lower-right), s(toward camera)
+    // w/nw/sw are derived by flipping the corresponding base sprite
     const SPECIES = ['koi', 'goldfish', 'shubunkin'];
-    const DIRS    = ['e', 'ne', 'n', 'se'];
+    const DIRS    = ['e', 'ne', 'n', 'se', 's'];
     for (const sp of SPECIES) {
       for (const dir of DIRS) {
         this.load.image(`fish_${sp}_${dir}`, `assets/images/fish_${sp}_${dir}.png`);
