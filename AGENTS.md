@@ -47,32 +47,35 @@ Your learnings will help future agents work more effectively on this project.
 
 ```
 pondquest/
-├── index.html              # Entry point
-├── src/
-│   ├── main.js             # Phaser game bootstrap
+├── index.html              # Entry point (Vite)
+├── src/                    # TypeScript source (compiled by Vite/esbuild)
+│   ├── main.ts
 │   ├── scenes/
-│   │   ├── BootScene.js    # Asset loading
-│   │   ├── PondScene.js    # Main game scene
-│   │   └── UIScene.js      # HUD overlay (Phaser parallel scene)
+│   │   ├── BootScene.ts    # Asset loading (preloads all images/audio)
+│   │   ├── PondScene.ts    # Main game scene (pond, meadow, zoom, tray)
+│   │   └── UIScene.ts      # HUD overlay (chemistry stats)
 │   ├── systems/
-│   │   ├── EcosystemSystem.js   # Water chemistry simulation
-│   │   ├── FishSystem.js        # Fish AI & behavior
-│   │   ├── PlantSystem.js       # Plant growth & oxygen production
-│   │   └── StorageSystem.js     # localStorage ↔ MUD-schema state
+│   │   ├── EcosystemSystem.ts   # Water chemistry simulation
+│   │   ├── FishSystem.ts        # Fish AI, 8-dir sprites, info panel
+│   │   ├── PlantSystem.ts       # Plant growth & oxygen production
+│   │   └── StorageSystem.ts     # localStorage ↔ MUD-schema state
 │   ├── entities/
-│   │   ├── Fish.js
-│   │   ├── Plant.js
-│   │   └── PondTile.js
+│   │   ├── Fish.ts
+│   │   ├── Plant.ts
+│   │   └── PondTile.ts
 │   ├── data/
-│   │   ├── species.json         # Fish/plant species definitions
-│   │   └── chemistry.json       # Chemistry constants & thresholds
+│   │   ├── species.ts           # Fish/plant species definitions
+│   │   └── chemistry.ts         # Chemistry constants & thresholds
 │   └── utils/
-│       ├── iso.js               # Isometric math helpers
-│       └── audio.js             # Audio manager
-├── assets/
-│   ├── images/
+│       ├── iso.ts               # Isometric math helpers
+│       └── audio.ts             # Audio manager
+├── public/                 # ⚠️ Static assets go HERE (Vite copies to dist/)
+│   ├── CNAME               # Must be here so GitHub Pages keeps custom domain
+│   ├── assets/
+│   │   └── images/         # fish_*.png sprites live here
 │   ├── audio/
 │   └── tilemaps/
+├── vite.config.ts
 ├── AGENTS.md               # This file
 ├── CLAUDE.md -> AGENTS.md  # Symlink
 ├── GEMINI.md -> AGENTS.md  # Symlink
@@ -85,15 +88,20 @@ pondquest/
 ## 🏗️ Build & Test Commands
 
 ```bash
-# Serve locally (no build step — pure static HTML)
-python3 -m http.server 8080
-# or
-npx serve .
+# Dev server (Vite, hot-reload) — runs on port 8088 by default
+npm run dev
+# or on a specific port (to avoid conflicts)
+npx vite --port 5174 --host
 
-# Lint (if added later)
-# npx eslint src/
+# Production build → dist/
+npm run build
 
-# No test runner yet — visual QA in browser
+# TypeScript type-check only (no emit)
+npx tsc --noEmit
+
+# Visual QA: open http://localhost:5174 in browser
+# Test page for fish sprite transparency:
+#   http://localhost:5174/fish_test.html
 ```
 
 ---
@@ -143,7 +151,28 @@ npx serve .
 
 ## ⚠️ Known Issues & Solutions
 
-*(Populate as discovered)*
+### AI-generated PNG images lack real transparency
+- `generate_image` tool outputs **RGB PNGs** (no alpha channel). The checkerboard pattern visible in ai previews is **baked in as real pixels**.
+- **Fix**: Run `/tmp/remove_bg.py` (or similar) — Python/Pillow BFS flood-fill from image borders with `fuzz=60` to erase background. Check with: `python3 -c "from PIL import Image; img=Image.open('x.png'); print(img.mode)"` — must say `RGBA`.
+- **Verify**: Use `fish_test.html` to inspect each sprite against green/blue/white backgrounds.
+
+### Vite static assets must live in `public/`, not `assets/`
+- `assets/` at root IS served by Vite dev server (whole project root is served), but is **NOT copied to `dist/`** on build.
+- **Always** put images, audio, and the `CNAME` file under `public/` so they land in `dist/` for production.
+- Paths in code still reference them as `assets/images/foo.png` (Vite strips the `public/` prefix).
+
+### `CNAME` must be in `public/`
+- Putting `CNAME` only at the repo root means GitHub Pages loses the custom domain on every deploy (the deploy only sees `dist/`).
+- Keep `CNAME` in both repo root (git hygiene) and `public/` (so it lands in `dist/`).
+
+### TypeScript strict property checks on Phaser scene/system classes
+- Classes that assign `this.foo = ...` in `create()` / `constructor()` without a class-level declaration will get `Property 'foo' does not exist` errors.
+- **Fix**: Add `declare foo: Type;` lines at the top of the class — this satisfies TypeScript without emitting any JS.
+- Pattern used in `PondScene.ts` and `FishSystem.ts`.
+
+### Browser subagent is unreliable in this environment
+- `open_browser_url` frequently times out. Don't block work on browser automation.
+- For visual QA, serve the dev server and ask Pierce to check directly.
 
 ---
 
@@ -151,11 +180,14 @@ npx serve .
 
 - **Read TODO.md first** before starting any session — it has the current task queue.
 - **Read FEATURES.md** to understand what's stable, in-progress, and planned.
-- **Commit after each task** with a descriptive message referencing the TODO item.
-- The game uses a **single `index.html`** — Phaser loads from CDN. Don't add a bundler unless the user approves.
-- When generating assets, prefer **PNG spritesheets** for Phaser animations.
+- **Commit AND push after every task** — Pierce checks the live site at pond.quest immediately.
+- Static assets (images, audio): put in **`public/assets/…`** not `assets/` root.
 - Isometric tile math: `screenX = (isoX - isoY) * tileHalfWidth`, `screenY = (isoX + isoY) * tileHalfHeight`
 - The chemistry simulation runs on a **game-time tick** (1 real second = configurable in-game minutes), not real-time.
+- 8-directional fish sprite convention: base textures `fish_{species}_{e|ne|n|se}`; W/NW/SW/S derived via `setFlipX(true)`. Direction chosen by mapping `atan2(screenVy, screenVx)` to 45° sectors.
+- Fish info panel is a plain HTML overlay (not Phaser), positioned top-left. Pattern is reusable for plant/tile info panels.
+- `generate_image` PNGs need background removal — always run the Pillow flood-fill script and check `fish_test.html` before shipping.
+- `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
 
 ---
 
@@ -163,7 +195,8 @@ npx serve .
 
 - **Pierce** is the collaborator/project owner. Prefers concise, technical communication.
 - Likes real science grounded in biology/chemistry — cite real formulas when implementing systems.
-- Wants commits after each task — keep commit messages clear and descriptive.
+- **Always commit AND push** — Pierce watches pond.quest live and will notice if changes aren't there.
 - Prefers Ghibli-ish aesthetics: soft, warm, painterly. Avoid harsh/neon palettes.
-- Does not want a build step for now — keep it static/CDN-friendly.
+- Prefers iterative visual QA (likes seeing results fast, will call out issues immediately).
 - Suggest AGENTS.md updates at end of each session to keep it current and concise.
+- Session 2026-03-18: Added meadow background, scroll zoom, drag-and-drop inventory tray, AI fish sprites (8-directional), fish info panel with rename/harvest.

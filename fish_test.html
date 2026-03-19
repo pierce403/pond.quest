@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fish Transparency Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; font-family: monospace; padding: 16px; }
+  h1 { color: #fff; margin-bottom: 16px; font-size: 14px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .card span { color: #aaa; font-size: 10px; }
+  .bg-green  { background: #00b050; padding: 4px; border-radius: 4px; }
+  .bg-blue   { background: #1060c0; padding: 4px; border-radius: 4px; }
+  .bg-white  { background: #fff;    padding: 4px; border-radius: 4px; }
+  img { width: 130px; height: 130px; object-fit: contain; display: block; }
+</style>
+</head>
+<body>
+<h1>Fish Transparency Check — green / blue / white backgrounds</h1>
+<div class="grid" id="grid"></div>
+<script>
+const imgs = [
+  'fish_koi_e','fish_koi_ne','fish_koi_n','fish_koi_se',
+  'fish_goldfish_e','fish_goldfish_ne','fish_goldfish_n','fish_goldfish_se',
+  'fish_shubunkin_e','fish_shubunkin_ne','fish_shubunkin_n','fish_shubunkin_se',
+];
+const grid = document.getElementById('grid');
+for (const name of imgs) {
+  const src = `/assets/images/${name}.png`;
+  for (const [cls, bg] of [['bg-green','green'],['bg-blue','blue'],['bg-white','white']]) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="${cls}"><img src="${src}" /></div>
+      <span>${name}<br/>(${bg})</span>`;
+    grid.appendChild(card);
+  }
+}
+</script>
+</body>
+</html>
