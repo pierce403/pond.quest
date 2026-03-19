@@ -34,6 +34,7 @@
 - [ ] **[FEAT-11]** Save/load multiple pond profiles
 - [ ] **[FEAT-12]** MUD/Ethereum migration (smart contract state storage)
 - [ ] **[FEAT-13]** On-chain item ownership / trading
+- [ ] **[UX-2]** Drag fish/plant from pond back to trash zone to remove it (FishSystem/PlantSystem need Phaser drag events wired to trash drop zone)
 
 ---
 
@@ -44,3 +45,4 @@
 - [x] **[SETUP-1]** Initialize git repo with `main` as default branch — 2026-03-18
 - [x] **[SETUP-2]** Create AGENTS.md, CLAUDE.md symlink, GEMINI.md symlink — 2026-03-18
 - [x] **[SETUP-3]** Create TODO.md and FEATURES.md — 2026-03-18
+- [x] **[UX-1]** Meadow field background (grass tufts, wildflowers, trees), scroll-to-zoom (0.35x–2.2x), drag-and-drop inventory tray (spawn fish/plants by dragging onto canvas) — 2026-03-18
