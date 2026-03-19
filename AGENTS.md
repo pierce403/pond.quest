@@ -102,6 +102,11 @@ npx tsc --noEmit
 # Visual QA: open http://localhost:5174 in browser
 # Test page for fish sprite transparency:
 #   http://localhost:5174/fish_test.html
+
+# Automated fish transparency QA (after `npx playwright install chromium`)
+# Start Vite on a fixed host/port first:
+#   npx vite --host 127.0.0.1 --port 4174
+npm run verify:fish-transparency -- --url http://127.0.0.1:4174/fish_test.html
 ```
 
 ---
@@ -153,8 +158,9 @@ npx tsc --noEmit
 
 ### AI-generated PNG images lack real transparency
 - `generate_image` tool outputs **RGB PNGs** (no alpha channel). The checkerboard pattern visible in ai previews is **baked in as real pixels**.
-- **Fix**: Run `/tmp/remove_bg.py` (or similar) — Python/Pillow BFS flood-fill from image borders with `fuzz=60` to erase background. Check with: `python3 -c "from PIL import Image; img=Image.open('x.png'); print(img.mode)"` — must say `RGBA`.
-- **Verify**: Use `fish_test.html` to inspect each sprite against green/blue/white backgrounds.
+- **Best fix so far**: `scripts/fix_fish_transparency.py --sync-root-assets` using `rembg` `u2net` with `alpha_matting=True`, `foreground_threshold=240`, `background_threshold=15`, `erode_size=8`. This preserved translucent fins better than the older Pillow flood-fill.
+- **Dependency note**: run the fixer from a Python venv with `pip install rembg onnxruntime`.
+- **Verify**: Use `fish_test.html` and `npm run verify:fish-transparency` against a local Vite server; the script saves `artifacts/fish_transparency_check.png` and fails if background coverage drops below the current safe threshold.
 
 ### Vite static assets must live in `public/`, not `assets/`
 - `assets/` at root IS served by Vite dev server (whole project root is served), but is **NOT copied to `dist/`** on build.
@@ -186,7 +192,8 @@ npx tsc --noEmit
 - The chemistry simulation runs on a **game-time tick** (1 real second = configurable in-game minutes), not real-time.
 - 8-directional fish sprite convention: base textures `fish_{species}_{e|ne|n|se}`; W/NW/SW/S derived via `setFlipX(true)`. Direction chosen by mapping `atan2(screenVy, screenVx)` to 45° sectors.
 - Fish info panel is a plain HTML overlay (not Phaser), positioned top-left. Pattern is reusable for plant/tile info panels.
-- `generate_image` PNGs need background removal — always run the Pillow flood-fill script and check `fish_test.html` before shipping.
+- `generate_image` fish PNGs need a real matting pass before shipping — use `scripts/fix_fish_transparency.py`, then confirm with `npm run verify:fish-transparency`.
+- Fish transparency cleanup is reproducible now: use `scripts/fix_fish_transparency.py` and then `npm run verify:fish-transparency`.
 - `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
 
 ---
@@ -200,3 +207,4 @@ npx tsc --noEmit
 - Prefers iterative visual QA (likes seeing results fast, will call out issues immediately).
 - Suggest AGENTS.md updates at end of each session to keep it current and concise.
 - Session 2026-03-18: Added meadow background, scroll zoom, drag-and-drop inventory tray, AI fish sprites (8-directional), fish info panel with rename/harvest.
+- Session 2026-03-18: Cleaned all shipped fish PNGs with `rembg` alpha matting, added `scripts/fix_fish_transparency.py`, added Playwright-based `npm run verify:fish-transparency`, and saved the latest QA screenshot to `artifacts/fish_transparency_check.png`.

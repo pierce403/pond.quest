@@ -7,9 +7,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:fish-transparency": "node scripts/verify_fish_transparency.mjs"
   },
   "devDependencies": {
+    "playwright": "^1.58.2",
     "typescript": "^5.8.2",
     "vite": "^6.2.2"
   },
