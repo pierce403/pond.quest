@@ -19,7 +19,7 @@ export default class BootScene extends Phaser.Scene {
     const barY = height / 2 + 20;
 
     // Title text
-    this.add.text(width / 2, height / 2 - 40, 'Pond Quest', {
+    this.add.text(width / 2, height / 2 - 40, 'Fish Quest', {
       fontSize: '32px',
       color: '#a8d8b9',
       fontFamily: 'Georgia, serif',
