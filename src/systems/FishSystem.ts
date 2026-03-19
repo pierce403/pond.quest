@@ -114,6 +114,14 @@ export default class FishSystem {
     return TURN_INTERVAL_SECONDS + Math.random() * TURN_INTERVAL_VARIANCE;
   }
 
+  _getSpawnMargin(spec: any) {
+    return 0.18 + spec.size / 140;
+  }
+
+  _getPlacementSeparation(spec: any) {
+    return Math.max(0.38, spec.size / 32);
+  }
+
   _ensureFishMotionState(f: any, spec: any) {
     const maxSpeed = spec.speed / 100;
     const currentSpeed = Math.hypot(f.vx ?? 0, f.vy ?? 0);
@@ -169,7 +177,39 @@ export default class FishSystem {
 
   spawnFish(species = 'koi') {
     const spec = this.speciesDefs[species];
-    if (!spec) return;
+    if (!spec) return null;
+
+    for (let attempt = 0; attempt < 24; attempt += 1) {
+      const margin = this._getSpawnMargin(spec);
+      const x = margin + Math.random() * Math.max(0.1, this.bounds.gridW - margin * 2);
+      const y = margin + Math.random() * Math.max(0.1, this.bounds.gridH - margin * 2);
+      const fishId = this.spawnFishAt(species, x, y);
+      if (fishId) return fishId;
+    }
+
+    return null;
+  }
+
+  canPlaceFishAt(species: string, x: number, y: number, ignoreId: string | null = null) {
+    const spec = this.speciesDefs[species];
+    if (!spec) return false;
+
+    const margin = this._getSpawnMargin(spec);
+    if (x < margin || y < margin || x > this.bounds.gridW - margin || y > this.bounds.gridH - margin) {
+      return false;
+    }
+
+    const minDistance = this._getPlacementSeparation(spec);
+    return !this.storage.getFish().some((other: any) => {
+      if (other.id === ignoreId) return false;
+      return Math.hypot((other.x ?? 0) - x, (other.y ?? 0) - y) < minDistance;
+    });
+  }
+
+  spawnFishAt(species = 'koi', x: number, y: number) {
+    const spec = this.speciesDefs[species];
+    if (!spec) return null;
+    if (!this.canPlaceFishAt(species, x, y)) return null;
 
     const id = generateId();
     const headingAngle = Math.random() * Math.PI * 2;
@@ -178,8 +218,8 @@ export default class FishSystem {
       id,
       species,
       name: this._generateFishName(species),
-      x: 0.5 + Math.random() * 3.0,
-      y: 0.5 + Math.random() * 3.0,
+      x,
+      y,
       age: 0,
       health: 1.0,
       stress: 0.0,
@@ -697,6 +737,13 @@ export default class FishSystem {
     const obj = this._fishObjects.get(id);
     if (obj) { obj.container.destroy(); this._fishObjects.delete(id); }
     this.storage.removeFish(id);
+  }
+
+  setInteractivityEnabled(enabled: boolean) {
+    this._fishObjects.forEach((obj: any) => {
+      if (obj.container?.input) obj.container.input.enabled = enabled;
+    });
+    if (!enabled && this._infoPanelFishId) this._closeInfoPanel();
   }
 
   restoreFromStorage() {

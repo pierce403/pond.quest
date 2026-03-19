@@ -109,9 +109,41 @@ export default class PlantSystem {
     }
   }
 
+  isPlantSlotOccupied(tileX: number, tileY: number, subX: number, subY: number, ignoreId: string | null = null) {
+    return this.storage.getPlants().some((plant: any) => {
+      if (plant.id === ignoreId) return false;
+      return plant.tileX === tileX && plant.tileY === tileY && plant.subX === subX && plant.subY === subY;
+    });
+  }
+
+  findPlacementSlot(tileX: number, tileY: number, preferredSubX: number, preferredSubY: number, ignoreId: string | null = null) {
+    if (tileX < 0 || tileY < 0 || tileX >= this.bounds.gridW || tileY >= this.bounds.gridH) {
+      return null;
+    }
+
+    const candidates: { subX: number; subY: number; distance: number }[] = [];
+    for (let subX = 0; subX < 4; subX += 1) {
+      for (let subY = 0; subY < 4; subY += 1) {
+        candidates.push({
+          subX,
+          subY,
+          distance: Math.hypot(subX - preferredSubX, subY - preferredSubY),
+        });
+      }
+    }
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates.find(({ subX, subY }) => !this.isPlantSlotOccupied(tileX, tileY, subX, subY, ignoreId)) ?? null;
+  }
+
+  canPlacePlantAt(tileX: number, tileY: number, subX: number, subY: number, ignoreId: string | null = null) {
+    return !this.isPlantSlotOccupied(tileX, tileY, subX, subY, ignoreId);
+  }
+
   placePlant(species: string, tileX: number, tileY: number, subX: number, subY: number) {
     const spec = this.speciesDefs[species];
     if (!spec) return null;
+    if (!this.canPlacePlantAt(tileX, tileY, subX, subY)) return null;
 
     const id = generateId();
     const plantData = {
@@ -509,5 +541,12 @@ export default class PlantSystem {
     }
     if (this._infoPanelPlantId === id) this._closeInfoPanel();
     this.storage.removePlant(id);
+  }
+
+  setInteractivityEnabled(enabled: boolean) {
+    this._plantObjects.forEach((obj: any) => {
+      if (obj.container?.input) obj.container.input.enabled = enabled;
+    });
+    if (!enabled && this._infoPanelPlantId) this._closeInfoPanel();
   }
 }

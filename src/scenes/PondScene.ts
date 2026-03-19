@@ -9,7 +9,7 @@
  * Ghibli-inspired water effect (layered translucent fills + gentle animation).
  */
 
-import { isoToScreen, screenToIso, isoDepth, TILE_W, TILE_H, HALF_W, HALF_H } from '../utils/iso';
+import { isoToScreen, screenToIso, subTileToScreen, HALF_W, HALF_H } from '../utils/iso';
 import StorageSystem from '../systems/StorageSystem';
 import EcosystemSystem from '../systems/EcosystemSystem';
 import FishSystem from '../systems/FishSystem';
@@ -46,6 +46,33 @@ const COLORS = {
 // Zoom bounds
 const MAX_ZOOM = 4.0;
 
+type PlacementSelection = {
+  type: 'fish' | 'plant';
+  species: string;
+};
+
+type PlacementPreview =
+  | {
+      type: 'fish';
+      valid: boolean;
+      x: number;
+      y: number;
+      screenX: number;
+      screenY: number;
+      colorInt: number;
+    }
+  | {
+      type: 'plant';
+      valid: boolean;
+      tileX: number;
+      tileY: number;
+      subX: number;
+      subY: number;
+      screenX: number;
+      screenY: number;
+      colorInt: number;
+    };
+
 export default class PondScene extends Phaser.Scene {
   // Runtime state — declared here to satisfy TypeScript strict property checks
   declare gridOriginX: number;
@@ -69,7 +96,9 @@ export default class PondScene extends Phaser.Scene {
   declare _flowerPositions: any[];
   declare _treePositions: any[];
   declare _inventoryTray: HTMLElement;
-  declare _trashEl: HTMLElement;
+  declare _placementHintEl: HTMLElement;
+  declare _placementPreviewGfx: Phaser.GameObjects.Graphics;
+  declare _placementSelection: PlacementSelection | null;
 
   constructor() {
     super({ key: 'PondScene' });
@@ -130,8 +159,13 @@ export default class PondScene extends Phaser.Scene {
 
     // ── Input ─────────────────────────────────────────────────────────────
     this.input.addPointer(1);
-    this.input.on('pointerdown', () => {
+    this._placementSelection = null;
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.audio.unlock();
+      this._handlePlacementPointerDown(pointer);
+    });
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      this._updatePlacementPreview(pointer);
     });
 
     // ── Scroll-to-zoom ────────────────────────────────────────────────────
@@ -143,8 +177,9 @@ export default class PondScene extends Phaser.Scene {
       this._setTargetZoom(this._currentZoom - deltaY * 0.001 * (this._currentZoom * 4));
     });
 
-    // ── Inventory tray (HTML overlay for drag-and-drop) ───────────────────
+    // ── Inventory tray (HTML overlay for click-to-place) ──────────────────
     this._buildInventoryTray();
+    this._createPlacementPreview();
 
     // ── Launch UI overlay scene in parallel ───────────────────────────────
     this.scene.launch('UIScene', { storage: this.storage, ecosystem: this.ecosystem });
@@ -158,6 +193,7 @@ export default class PondScene extends Phaser.Scene {
       this._currentZoom = this._clampZoom(this._currentZoom);
       this.cameras.main.setZoom(this._clampZoom(this.cameras.main.zoom));
       this._repositionInventoryTray(gameSize.width, gameSize.height);
+      this._updatePlacementPreview(this.input.activePointer);
     });
   }
 
@@ -168,6 +204,7 @@ export default class PondScene extends Phaser.Scene {
     this.plantSystem.update(delta);
     this._animateWaterShimmer(time);
     this._animateMeadow(time);
+    this._updatePlacementPreview(this.input.activePointer);
 
     // Smooth zoom towards target
     if (this._currentZoom !== undefined) {
@@ -502,12 +539,11 @@ export default class PondScene extends Phaser.Scene {
   // ── Inventory Tray ────────────────────────────────────────────────────────
 
   /**
-   * Build an HTML overlay tray with draggable item cards.
-   * Each card can be dragged onto the canvas to spawn that entity.
-   * Existing entities in the pond can be dragged to the trash icon to remove them.
+   * Build an HTML overlay tray with explicit place buttons.
+   * Click a card to arm placement, then click the pond to place it.
    */
   _buildInventoryTray() {
-    const { width, height } = this.cameras.main;
+    const { width } = this.cameras.main;
 
     // ── Outer tray container ──────────────────────────────────────────────
     const tray = document.createElement('div');
@@ -565,33 +601,27 @@ export default class PondScene extends Phaser.Scene {
       tray.appendChild(card);
     });
 
-    // ── Divider ───────────────────────────────────────────────────────────
-    const div2 = document.createElement('div');
-    div2.dataset.trayDivider = '1';
-    Object.assign(div2.style, { width: '1px', height: '48px', background: 'rgba(82, 183, 136, 0.25)', margin: '0 4px' });
-    tray.appendChild(div2);
-
-    // ── Trash zone ────────────────────────────────────────────────────────
-    const trash = document.createElement('div');
-    trash.id = 'pond-trash';
-    Object.assign(trash.style, {
-      width: '48px', height: '48px',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: '22px',
-      borderRadius: '10px',
-      border: '1.5px dashed rgba(230, 111, 81, 0.4)',
-      color: 'rgba(230, 111, 81, 0.6)',
-      cursor: 'default',
-      transition: 'all 0.2s',
-      flexShrink: '0',
+    const hint = document.createElement('div');
+    hint.dataset.placementHint = '1';
+    Object.assign(hint.style, {
+      minWidth: '180px',
+      maxWidth: '220px',
+      padding: '8px 12px',
+      borderRadius: '12px',
+      background: 'rgba(82, 183, 136, 0.12)',
+      border: '1px solid rgba(82, 183, 136, 0.18)',
+      color: 'rgba(208, 235, 216, 0.82)',
+      fontSize: '11px',
+      lineHeight: '1.4',
+      flexShrink: '1',
     });
-    trash.textContent = '🗑️';
-    tray.appendChild(trash);
-    this._trashEl = trash;
+    hint.textContent = 'Choose a fish or plant, then tap the pond to place it.';
+    tray.appendChild(hint);
+    this._placementHintEl = hint;
 
-    // ── Global drag event plumbing ────────────────────────────────────────
-    this._setupTrayDragEvents();
+    this._setupTrayPlacementEvents();
     this._applyResponsiveTrayLayout(width);
+    this._refreshTraySelection();
   }
 
   _makeTrayLabel(text: string): HTMLElement {
@@ -611,7 +641,7 @@ export default class PondScene extends Phaser.Scene {
   }
 
   /**
-   * Create a draggable tray card for a given entity type and species.
+   * Create a tray card for a given entity type and species.
    */
   _makeTrayCard(name: string, colorInt: number, type: 'fish' | 'plant', speciesKey: string, def: any): HTMLElement {
     const r = (colorInt >> 16) & 0xff;
@@ -623,6 +653,7 @@ export default class PondScene extends Phaser.Scene {
     card.dataset.type = type;
     card.dataset.species = speciesKey;
     card.dataset.trayCard = '1';
+    card.dataset.rgb = `${r},${g},${b}`;
     card.title = def.description || name;
     Object.assign(card.style, {
       width: '52px', height: '52px',
@@ -631,8 +662,8 @@ export default class PondScene extends Phaser.Scene {
       border: `1.5px solid rgba(${r},${g},${b},0.5)`,
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      cursor: 'grab',
-      transition: 'transform 0.15s, box-shadow 0.15s',
+      cursor: 'pointer',
+      transition: 'transform 0.15s, box-shadow 0.15s, border-color 0.15s, background 0.15s',
       flexShrink: '0',
       position: 'relative',
     });
@@ -659,10 +690,12 @@ export default class PondScene extends Phaser.Scene {
 
     // Hover effect
     card.addEventListener('mouseenter', () => {
+      if (card.dataset.active === '1') return;
       card.style.transform = 'scale(1.08)';
       card.style.boxShadow = `0 0 12px rgba(${r},${g},${b},0.45)`;
     });
     card.addEventListener('mouseleave', () => {
+      if (card.dataset.active === '1') return;
       card.style.transform = '';
       card.style.boxShadow = '';
     });
@@ -671,7 +704,7 @@ export default class PondScene extends Phaser.Scene {
   }
 
   _applyResponsiveTrayLayout(width: number) {
-    if (!this._inventoryTray || !this._trashEl) return;
+    if (!this._inventoryTray || !this._placementHintEl) return;
 
     const compact = width < 760;
     Object.assign(this._inventoryTray.style, {
@@ -681,6 +714,7 @@ export default class PondScene extends Phaser.Scene {
       maxWidth: compact ? 'calc(100vw - 10px)' : '760px',
       flexWrap: compact ? 'wrap' : 'nowrap',
       borderRadius: compact ? '14px' : '16px',
+      justifyContent: compact ? 'center' : 'center',
     });
 
     this._inventoryTray.querySelectorAll('[data-tray-label="1"]').forEach((label) => {
@@ -712,89 +746,190 @@ export default class PondScene extends Phaser.Scene {
       }
     });
 
-    Object.assign(this._trashEl.style, {
-      width: compact ? '40px' : '48px',
-      height: compact ? '40px' : '48px',
-      fontSize: compact ? '18px' : '22px',
+    Object.assign(this._placementHintEl.style, {
+      minWidth: compact ? '100%' : '180px',
+      maxWidth: compact ? '100%' : '220px',
+      fontSize: compact ? '10px' : '11px',
+      textAlign: compact ? 'center' : 'left',
     });
   }
 
-  _setupTrayDragEvents() {
-    const container = document.getElementById('game-container')!;
-    const canvas = this.sys.game.canvas;
-
-    let dragData: { type: string; species: string } | null = null;
-    let ghost: HTMLElement | null = null;
-
-    // Pointer-down on a tray card → start drag from tray
-    this._inventoryTray.addEventListener('pointerdown', (e: PointerEvent) => {
+  _setupTrayPlacementEvents() {
+    this._inventoryTray.addEventListener('click', (e: MouseEvent) => {
       const card = (e.target as HTMLElement).closest('[data-type]') as HTMLElement | null;
       if (!card) return;
-      dragData = { type: card.dataset.type!, species: card.dataset.species! };
-
-      ghost = card.cloneNode(true) as HTMLElement;
-      Object.assign(ghost.style, {
-        position: 'fixed', pointerEvents: 'none', opacity: '0.85',
-        zIndex: '999', transform: 'scale(1.1)',
-        left: `${e.clientX - 26}px`, top: `${e.clientY - 26}px`,
-        transition: 'none',
+      const sameSelection = this._placementSelection?.type === card.dataset.type
+        && this._placementSelection?.species === card.dataset.species;
+      this._setPlacementSelection(sameSelection ? null : {
+        type: card.dataset.type as 'fish' | 'plant',
+        species: card.dataset.species!,
       });
-      document.body.appendChild(ghost);
-      e.preventDefault();
+    });
+  }
+
+  _refreshTraySelection() {
+    if (!this._inventoryTray || !this._placementHintEl) return;
+
+    this._inventoryTray.querySelectorAll('[data-tray-card="1"]').forEach((cardEl) => {
+      const card = cardEl as HTMLElement;
+      const [r, g, b] = (card.dataset.rgb ?? '82,183,136').split(',').map((value) => Number(value));
+      const active = this._placementSelection?.type === card.dataset.type
+        && this._placementSelection?.species === card.dataset.species;
+      card.dataset.active = active ? '1' : '0';
+      card.style.transform = active ? 'translateY(-2px) scale(1.08)' : '';
+      card.style.boxShadow = active ? `0 0 18px rgba(${r},${g},${b},0.48)` : '';
+      card.style.background = active ? `rgba(${r},${g},${b},0.32)` : `rgba(${r},${g},${b},0.18)`;
+      card.style.borderColor = active ? `rgba(${r},${g},${b},0.95)` : `rgba(${r},${g},${b},0.5)`;
     });
 
-    // Pointer move → move ghost
-    document.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!ghost) return;
-      ghost.style.left = `${e.clientX - 26}px`;
-      ghost.style.top = `${e.clientY - 26}px`;
+    if (!this._placementSelection) {
+      this._placementHintEl.textContent = 'Choose a fish or plant, then tap the pond to place it.';
+      this._placementHintEl.style.color = 'rgba(208, 235, 216, 0.82)';
+      this._placementHintEl.style.borderColor = 'rgba(82, 183, 136, 0.18)';
+      return;
+    }
 
-      // Highlight trash if hovering over it
-      const trashRect = this._trashEl.getBoundingClientRect();
-      const overTrash = e.clientX >= trashRect.left && e.clientX <= trashRect.right &&
-                        e.clientY >= trashRect.top  && e.clientY <= trashRect.bottom;
-      this._trashEl.style.borderColor = overTrash ? 'rgba(230,111,81,0.9)' : 'rgba(230,111,81,0.4)';
-      this._trashEl.style.color       = overTrash ? 'rgba(230,111,81,0.9)' : 'rgba(230,111,81,0.6)';
-    });
+    const defs = this._placementSelection.type === 'fish'
+      ? speciesDefs.fish as Record<string, any>
+      : speciesDefs.plants as Record<string, any>;
+    const spec = defs[this._placementSelection.species];
+    const colorInt = spec?.padColor ?? spec?.stemColor ?? spec?.color ?? COLORS.waterHighlight;
+    const r = (colorInt >> 16) & 0xff;
+    const g = (colorInt >> 8) & 0xff;
+    const b = colorInt & 0xff;
+    this._placementHintEl.textContent = `Tap the pond to place ${spec?.name ?? this._placementSelection.species}. Tap the lit button again to cancel.`;
+    this._placementHintEl.style.color = `rgba(${r},${g},${b},0.96)`;
+    this._placementHintEl.style.borderColor = `rgba(${r},${g},${b},0.4)`;
+  }
 
-    // Pointer up → drop logic
-    document.addEventListener('pointerup', (e: PointerEvent) => {
-      if (!ghost || !dragData) return;
+  _setPlacementSelection(selection: PlacementSelection | null) {
+    this._placementSelection = selection;
+    this._refreshTraySelection();
+    this.fishSystem.setInteractivityEnabled(!selection);
+    this.plantSystem.setInteractivityEnabled(!selection);
+    this.sys.game.canvas.style.cursor = selection ? 'crosshair' : '';
+    if (!selection && this._placementPreviewGfx) {
+      this._placementPreviewGfx.clear();
+    }
+  }
 
-      // Check if dropped over trash
-      const trashRect = this._trashEl.getBoundingClientRect();
-      const overTrash = e.clientX >= trashRect.left && e.clientX <= trashRect.right &&
-                        e.clientY >= trashRect.top  && e.clientY <= trashRect.bottom;
+  _createPlacementPreview() {
+    this._placementPreviewGfx = this.add.graphics();
+    this._placementPreviewGfx.setDepth(45);
+  }
 
-      if (!overTrash) {
-        // Check if dropped on the canvas
-        const canvasRect = canvas.getBoundingClientRect();
-        const onCanvas = e.clientX >= canvasRect.left && e.clientX <= canvasRect.right &&
-                         e.clientY >= canvasRect.top  && e.clientY <= canvasRect.bottom;
-        if (onCanvas && dragData.type === 'fish') {
-          this.fishSystem.spawnFish(dragData.species);
-          this.audio.playSfx('sfx_plop');
-        } else if (onCanvas && dragData.type === 'plant') {
-          // Place plant at a random free sub-tile position
-          const tx = Math.floor(Math.random() * this.gridW);
-          const ty = Math.floor(Math.random() * this.gridH);
-          const sx = Math.floor(Math.random() * 4);
-          const sy = Math.floor(Math.random() * 4);
-          this.plantSystem.placePlant(dragData.species, tx, ty, sx, sy);
-          this.audio.playSfx('sfx_plop');
-        }
-      }
+  _resolvePlacementPreview(pointer: Phaser.Input.Pointer): PlacementPreview | null {
+    if (!this._placementSelection) return null;
+    if (pointer.x < 0 || pointer.y < 0 || pointer.x > this.scale.width || pointer.y > this.scale.height) {
+      return null;
+    }
 
-      ghost.remove();
-      ghost = null;
-      dragData = null;
-      this._trashEl.style.borderColor = 'rgba(230,111,81,0.4)';
-      this._trashEl.style.color = 'rgba(230,111,81,0.6)';
-    });
+    const worldX = pointer.worldX;
+    const worldY = pointer.worldY;
+    const { isoX, isoY } = screenToIso(worldX, worldY, this.gridOriginX, this.gridOriginY);
+    if (isoX < 0 || isoY < 0 || isoX >= this.gridW || isoY >= this.gridH) {
+      return null;
+    }
+
+    if (this._placementSelection.type === 'fish') {
+      const spec = (speciesDefs.fish as Record<string, any>)[this._placementSelection.species];
+      const margin = 0.24;
+      const x = Phaser.Math.Clamp(isoX, margin, this.gridW - margin);
+      const y = Phaser.Math.Clamp(isoY, margin, this.gridH - margin);
+      const screen = isoToScreen(x, y, this.gridOriginX, this.gridOriginY);
+      return {
+        type: 'fish',
+        valid: this.fishSystem.canPlaceFishAt(this._placementSelection.species, x, y),
+        x,
+        y,
+        screenX: screen.x,
+        screenY: screen.y,
+        colorInt: spec?.color ?? COLORS.waterHighlight,
+      };
+    }
+
+    const tileX = Math.floor(isoX);
+    const tileY = Math.floor(isoY);
+    const localX = Phaser.Math.Clamp(isoX - tileX, 0, 0.999);
+    const localY = Phaser.Math.Clamp(isoY - tileY, 0, 0.999);
+    const preferredSubX = Math.min(3, Math.floor(localX * 4));
+    const preferredSubY = Math.min(3, Math.floor(localY * 4));
+    const slot = this.plantSystem.findPlacementSlot(tileX, tileY, preferredSubX, preferredSubY);
+    const previewSubX = slot?.subX ?? preferredSubX;
+    const previewSubY = slot?.subY ?? preferredSubY;
+    const screen = subTileToScreen(tileX, tileY, previewSubX, previewSubY, this.gridOriginX, this.gridOriginY);
+    const spec = (speciesDefs.plants as Record<string, any>)[this._placementSelection.species];
+
+    return {
+      type: 'plant',
+      valid: Boolean(slot),
+      tileX,
+      tileY,
+      subX: previewSubX,
+      subY: previewSubY,
+      screenX: screen.x,
+      screenY: screen.y,
+      colorInt: spec?.padColor ?? spec?.stemColor ?? spec?.color ?? COLORS.waterHighlight,
+    };
+  }
+
+  _updatePlacementPreview(pointer: Phaser.Input.Pointer) {
+    if (!this._placementPreviewGfx) return;
+    this._placementPreviewGfx.clear();
+
+    const preview = this._resolvePlacementPreview(pointer);
+    if (!preview) return;
+
+    const color = preview.valid ? preview.colorInt : 0xe76f51;
+    const alpha = preview.valid ? 0.92 : 0.82;
+    this._placementPreviewGfx.lineStyle(2, color, alpha);
+    this._placementPreviewGfx.fillStyle(color, preview.valid ? 0.16 : 0.12);
+
+    if (preview.type === 'fish') {
+      this._placementPreviewGfx.fillEllipse(preview.screenX, preview.screenY, 34, 18);
+      this._placementPreviewGfx.strokeEllipse(preview.screenX, preview.screenY, 34, 18);
+      this._placementPreviewGfx.lineBetween(preview.screenX + 8, preview.screenY, preview.screenX + 22, preview.screenY);
+    } else {
+      const sizeX = HALF_W / 4;
+      const sizeY = HALF_H / 4;
+      this._placementPreviewGfx.beginPath();
+      this._placementPreviewGfx.moveTo(preview.screenX, preview.screenY - sizeY);
+      this._placementPreviewGfx.lineTo(preview.screenX + sizeX, preview.screenY);
+      this._placementPreviewGfx.lineTo(preview.screenX, preview.screenY + sizeY);
+      this._placementPreviewGfx.lineTo(preview.screenX - sizeX, preview.screenY);
+      this._placementPreviewGfx.closePath();
+      this._placementPreviewGfx.fillPath();
+      this._placementPreviewGfx.strokePath();
+    }
+  }
+
+  _handlePlacementPointerDown(pointer: Phaser.Input.Pointer) {
+    if (!this._placementSelection) return;
+
+    const preview = this._resolvePlacementPreview(pointer);
+    if (!preview || !preview.valid) return;
+
+    if (preview.type === 'fish') {
+      const fishId = this.fishSystem.spawnFishAt(this._placementSelection.species, preview.x, preview.y);
+      if (!fishId) return;
+    } else {
+      const plantId = this.plantSystem.placePlant(
+        this._placementSelection.species,
+        preview.tileX,
+        preview.tileY,
+        preview.subX,
+        preview.subY
+      );
+      if (!plantId) return;
+    }
+
+    this.audio.playSfx('sfx_plop');
+    this._setPlacementSelection(null);
   }
 
   _repositionInventoryTray(_w: number, _h: number) {
     this._applyResponsiveTrayLayout(_w);
+    this._refreshTraySelection();
   }
 
   _animateWaterShimmer(time: number) {
