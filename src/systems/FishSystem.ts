@@ -114,8 +114,16 @@ export default class FishSystem {
     return TURN_INTERVAL_SECONDS + Math.random() * TURN_INTERVAL_VARIANCE;
   }
 
+  _getSwimInset(spec: any) {
+    return Math.min(0.72, Math.max(0.42, 0.22 + spec.size / 38));
+  }
+
+  _getTurnMargin(spec: any) {
+    return Math.min(1.05, this._getSwimInset(spec) + 0.28);
+  }
+
   _getSpawnMargin(spec: any) {
-    return 0.18 + spec.size / 140;
+    return this._getSwimInset(spec);
   }
 
   _getPlacementSeparation(spec: any) {
@@ -357,11 +365,12 @@ export default class FishSystem {
     const minCruiseSpeed = maxSpeed * 0.5;
     const WANDER_STRENGTH = 0.015;
     const SEPARATION_DIST = 0.6;
-    const BOUND_MARGIN = 0.35;
-    const minX = 0.1;
-    const maxX = this.bounds.gridW - 0.1;
-    const minY = 0.1;
-    const maxY = this.bounds.gridH - 0.1;
+    const swimInset = this._getSwimInset(spec);
+    const turnMargin = this._getTurnMargin(spec);
+    const minX = swimInset;
+    const maxX = this.bounds.gridW - swimInset;
+    const minY = swimInset;
+    const maxY = this.bounds.gridH - swimInset;
 
     f.wanderAngle += (Math.random() - 0.5) * 0.15;
     let desiredVx = Math.cos(f.wanderAngle) * WANDER_STRENGTH;
@@ -389,10 +398,10 @@ export default class FishSystem {
       desiredVx += f.fleeVx * fleeStr; desiredVy += f.fleeVy * fleeStr;
     }
 
-    if (f.x < BOUND_MARGIN) desiredVx += 0.05;
-    if (f.x > this.bounds.gridW - BOUND_MARGIN) desiredVx -= 0.05;
-    if (f.y < BOUND_MARGIN) desiredVy += 0.05;
-    if (f.y > this.bounds.gridH - BOUND_MARGIN) desiredVy -= 0.05;
+    if (f.x < turnMargin) desiredVx += 0.05 + (turnMargin - f.x) * 0.08;
+    if (f.x > this.bounds.gridW - turnMargin) desiredVx -= 0.05 + (f.x - (this.bounds.gridW - turnMargin)) * 0.08;
+    if (f.y < turnMargin) desiredVy += 0.05 + (turnMargin - f.y) * 0.08;
+    if (f.y > this.bounds.gridH - turnMargin) desiredVy -= 0.05 + (f.y - (this.bounds.gridH - turnMargin)) * 0.08;
 
     desiredVx += sx;
     desiredVy += sy;
@@ -404,10 +413,10 @@ export default class FishSystem {
       : currentAngle;
     const wantsTurn = Math.abs(angleDelta(currentAngle, desiredAngle)) > TURN_THRESHOLD_RADIANS;
     const headingOutward =
-      (f.x <= minX + 0.02 && Math.cos(currentAngle) < 0) ||
-      (f.x >= maxX - 0.02 && Math.cos(currentAngle) > 0) ||
-      (f.y <= minY + 0.02 && Math.sin(currentAngle) < 0) ||
-      (f.y >= maxY - 0.02 && Math.sin(currentAngle) > 0);
+      (f.x <= minX + 0.03 && Math.cos(currentAngle) < 0) ||
+      (f.x >= maxX - 0.03 && Math.cos(currentAngle) > 0) ||
+      (f.y <= minY + 0.03 && Math.sin(currentAngle) < 0) ||
+      (f.y >= maxY - 0.03 && Math.sin(currentAngle) > 0);
 
     if (f.forceImmediateTurn || (f.turnCooldown <= 0 && (wantsTurn || headingOutward))) {
       f.headingAngle = desiredAngle;

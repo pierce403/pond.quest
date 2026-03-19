@@ -208,6 +208,7 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - `generate_image` fish PNGs need a real matting pass before shipping — use `scripts/fix_fish_transparency.py`, then confirm with `npm run verify:fish-transparency`.
 - In dev, `window.__pondQuestGame` is exposed from `src/main.ts`, which makes Playwright scene-state checks much easier.
 - Fish transparency cleanup is reproducible now: use `scripts/fix_fish_transparency.py` and then `npm run verify:fish-transparency`.
+- Fish movement bounds should be species-aware instead of hardcoded. `FishSystem` now uses a larger `_getSwimInset(spec)` and `_getTurnMargin(spec)` so koi do not visually hang off the pond edge.
 - Social cards are generated locally by `scripts/generate_social_preview.py`; the shipped tags point at `public/og-image.png` and `public/embed-image.png`, so regenerate those files instead of hand-editing the meta tags alone.
 - `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
 
@@ -225,3 +226,4 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Session 2026-03-18: Cleaned all shipped fish PNGs with `rembg` alpha matting, added `scripts/fix_fish_transparency.py`, added Playwright-based `npm run verify:fish-transparency`, and saved the latest QA screenshot to `artifacts/fish_transparency_check.png`.
 - Session 2026-03-19: Added dynamic mobile-safe zoom clamping, pointer-based tray drag/drop, fish turn cooldowns to kill direction jitter, richer procedural plant graphics plus plant stats/pull panel, chemistry-driven plant sickness/effectiveness, and procedural `ambient_water` / `bgm_chill` / `sfx_plop` / `sfx_splash` audio.
 - Session 2026-03-19: Replaced tray drag/drop with click-to-place buttons backed by scene/system placement checks, added reproducible social preview generation (`npm run generate:social-preview`), and added Playwright coverage for placement flow plus OG/embed assets (`npm run verify:placement-social`).
+- Session 2026-03-19: Tightened fish swimming bounds with a species-scaled interior inset so larger fish keep away from the pond rim; a short Playwright sample run saved `artifacts/fish_edge_margin_check.png`.
