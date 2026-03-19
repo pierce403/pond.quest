@@ -75,41 +75,117 @@ export default class BootScene extends Phaser.Scene {
   _generateProceduralAudio() {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-      // Water ambient: filtered white noise
-      this._createNoiseBuffer(ctx, 'ambient_water', 4.0, { lowpass: 400, volume: 0.15 });
-      // Splash SFX: short burst of filtered noise with decay
-      this._createNoiseBuffer(ctx, 'sfx_splash', 0.3, { lowpass: 2000, volume: 0.5, decay: true });
+      this._createWaterLoop(ctx, 'ambient_water', 6.0);
+      this._createSplashBuffer(ctx, 'sfx_splash', 0.45);
+      this._createPlopBuffer(ctx, 'sfx_plop', 0.28);
+      this._createChiptuneLoop(ctx, 'bgm_chill', 8.0);
     } catch (e) {
       console.warn('[BootScene] Web Audio not available:', e);
     }
   }
 
-  _createNoiseBuffer(ctx, key, durationSec, opts = {}) {
+  _createClip(ctx, key, durationSec, writer) {
     const sampleRate = ctx.sampleRate;
-    const length = sampleRate * durationSec;
+    const length = Math.floor(sampleRate * durationSec);
     const buffer = ctx.createBuffer(1, length, sampleRate);
     const data = buffer.getChannelData(0);
+    writer(data, sampleRate, length);
 
-    for (let i = 0; i < length; i++) {
-      let sample = Math.random() * 2 - 1;
-      // Simple low-pass approximation via moving average
-      if (i > 0 && opts.lowpass) {
-        const alpha = opts.lowpass / sampleRate;
-        sample = data[i - 1] + alpha * (sample - data[i - 1]);
-      }
-      // Decay envelope for SFX
-      if (opts.decay) {
-        sample *= Math.exp(-3 * i / length);
-      }
-      data[i] = sample * (opts.volume || 0.3);
-    }
-
-    // Convert AudioBuffer to a WAV blob Phaser can consume
     const wav = this._audioBufferToWav(buffer);
     const blob = new Blob([wav], { type: 'audio/wav' });
     const url = URL.createObjectURL(blob);
     this.load.audio(key, url);
+  }
+
+  _createWaterLoop(ctx, key, durationSec) {
+    this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
+      let filtered = 0;
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        const noise = (Math.random() * 2 - 1) * 0.32;
+        filtered += 0.018 * (noise - filtered);
+        const ripple = Math.sin(Math.PI * 2 * 0.23 * t) * 0.05 + Math.sin(Math.PI * 2 * 0.41 * t) * 0.025;
+        const edgeFade = Math.min(1, i / 4000, (length - i - 1) / 4000);
+        data[i] = (filtered + ripple) * 0.32 * edgeFade;
+      }
+    });
+  }
+
+  _createSplashBuffer(ctx, key, durationSec) {
+    this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
+      let phase = 0;
+      let filtered = 0;
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        const env = Math.exp(-9 * t / durationSec);
+        const freq = 220 - 140 * (t / durationSec);
+        phase += (Math.PI * 2 * freq) / sampleRate;
+        const tone = Math.sin(phase) * 0.22;
+        const noise = (Math.random() * 2 - 1) * 0.9;
+        filtered += 0.08 * (noise - filtered);
+        data[i] = (tone + filtered * 0.55) * env * 0.72;
+      }
+    });
+  }
+
+  _createPlopBuffer(ctx, key, durationSec) {
+    this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
+      let phase = 0;
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+        const env = Math.exp(-8 * t / durationSec);
+        const freq = 180 - 100 * (t / durationSec);
+        phase += (Math.PI * 2 * freq) / sampleRate;
+        const tone = Math.sin(phase);
+        const bubble = Math.sin(phase * 0.5) * 0.4;
+        const noise = (Math.random() * 2 - 1) * 0.15;
+        data[i] = (tone * 0.68 + bubble * 0.18 + noise) * env * 0.7;
+      }
+    });
+  }
+
+  _createChiptuneLoop(ctx, key, durationSec) {
+    const melody = [64, 67, 71, 72, 71, 67, 64, 62, 60, 62, 64, 67, 69, 67, 64, 62];
+    const bass = [36, 36, 41, 41, 43, 43, 38, 38];
+    const arps = [76, 79, 83, 79, 74, 77, 81, 77];
+    const stepSec = durationSec / melody.length;
+    const bassStepSec = durationSec / bass.length;
+    const arpStepSec = durationSec / arps.length;
+
+    this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
+      for (let i = 0; i < length; i++) {
+        const t = i / sampleRate;
+
+        const melodyIdx = Math.floor(t / stepSec) % melody.length;
+        const melodyLocal = (t % stepSec) / stepSec;
+        const melodyFreq = this._midiToFreq(melody[melodyIdx]);
+        const melodyEnv = melodyLocal < 0.12
+          ? melodyLocal / 0.12
+          : Math.max(0, 1 - (melodyLocal - 0.12) / 0.88) * 0.85;
+        const melodyWave = Math.sign(Math.sin(Math.PI * 2 * melodyFreq * t)) * melodyEnv * 0.18;
+
+        const bassIdx = Math.floor(t / bassStepSec) % bass.length;
+        const bassLocal = (t % bassStepSec) / bassStepSec;
+        const bassFreq = this._midiToFreq(bass[bassIdx]);
+        const bassEnv = bassLocal < 0.08
+          ? bassLocal / 0.08
+          : Math.max(0, 1 - bassLocal) * 0.7;
+        const bassWave = (2 / Math.PI) * Math.asin(Math.sin(Math.PI * 2 * bassFreq * t)) * bassEnv * 0.15;
+
+        const arpIdx = Math.floor(t / arpStepSec) % arps.length;
+        const arpLocal = (t % arpStepSec) / arpStepSec;
+        const arpFreq = this._midiToFreq(arps[arpIdx]);
+        const arpEnv = Math.max(0, 1 - arpLocal) * 0.38;
+        const arpWave = Math.sign(Math.sin(Math.PI * 2 * arpFreq * t)) * arpEnv * 0.08;
+
+        const edgeFade = Math.min(1, i / 3000, (length - i - 1) / 3000);
+        data[i] = (melodyWave + bassWave + arpWave) * edgeFade;
+      }
+    });
+  }
+
+  _midiToFreq(note) {
+    return 440 * Math.pow(2, (note - 69) / 12);
   }
 
   /**

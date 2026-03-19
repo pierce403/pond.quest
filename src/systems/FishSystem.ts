@@ -40,6 +40,24 @@ const DIR_BASES  = ['e',  'se',  'n',  'se',  'e',  'ne',  'n',  'ne'];
 const DIR_FLIPX  = [false, false, true, true,  true, true,  false, false];
 // Note: S uses n+flipX (back view flipped), SW uses se+flipX, NW uses ne+flipX, W uses e+flipX
 
+const TURN_INTERVAL_SECONDS = 2.0;
+const TURN_INTERVAL_VARIANCE = 0.5;
+const TURN_THRESHOLD_RADIANS = Math.PI / 8;
+
+function normalizeAngle(angle: number): number {
+  while (angle <= -Math.PI) angle += Math.PI * 2;
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  return angle;
+}
+
+function angleDelta(from: number, to: number): number {
+  return normalizeAngle(to - from);
+}
+
+function angleToDir(angle: number): number {
+  return velocityToDir(Math.cos(angle), Math.sin(angle));
+}
+
 /**
  * Map iso-space velocity to one of 8 direction indices.
  * In isometric view: screen_vx = vx - vy, screen_vy = vx + vy
@@ -92,6 +110,61 @@ export default class FishSystem {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
+  _nextTurnCooldown() {
+    return TURN_INTERVAL_SECONDS + Math.random() * TURN_INTERVAL_VARIANCE;
+  }
+
+  _ensureFishMotionState(f: any, spec: any) {
+    const maxSpeed = spec.speed / 100;
+    const currentSpeed = Math.hypot(f.vx ?? 0, f.vy ?? 0);
+    const headingAngle = Number.isFinite(f.headingAngle)
+      ? f.headingAngle
+      : currentSpeed > 0.001
+        ? Math.atan2(f.vy, f.vx)
+        : Math.random() * Math.PI * 2;
+    const cruiseSpeed = currentSpeed > 0.001 ? currentSpeed : maxSpeed * (0.65 + Math.random() * 0.2);
+
+    const updates: any = {};
+    if (!Number.isFinite(f.headingAngle)) {
+      f.headingAngle = headingAngle;
+      updates.headingAngle = headingAngle;
+    }
+    if (!Number.isFinite(f.vx) || !Number.isFinite(f.vy) || currentSpeed <= 0.001) {
+      f.vx = Math.cos(headingAngle) * cruiseSpeed;
+      f.vy = Math.sin(headingAngle) * cruiseSpeed;
+      updates.vx = f.vx;
+      updates.vy = f.vy;
+    }
+    if (!Number.isFinite(f.turnCooldown)) {
+      f.turnCooldown = this._nextTurnCooldown();
+      updates.turnCooldown = f.turnCooldown;
+    }
+    if (!Number.isFinite(f.wanderAngle)) {
+      f.wanderAngle = Math.random() * Math.PI * 2;
+      updates.wanderAngle = f.wanderAngle;
+    }
+    if (!Number.isFinite(f.fleeTimer)) {
+      f.fleeTimer = 0;
+      updates.fleeTimer = 0;
+    }
+    if (!Number.isFinite(f.fleeVx)) {
+      f.fleeVx = 0;
+      updates.fleeVx = 0;
+    }
+    if (!Number.isFinite(f.fleeVy)) {
+      f.fleeVy = 0;
+      updates.fleeVy = 0;
+    }
+    if (typeof f.forceImmediateTurn !== 'boolean') {
+      f.forceImmediateTurn = false;
+      updates.forceImmediateTurn = false;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      this.storage.updateFish(f.id, updates);
+    }
+  }
+
   // ── Spawn / restore ────────────────────────────────────────────────────────
 
   spawnFish(species = 'koi') {
@@ -99,6 +172,8 @@ export default class FishSystem {
     if (!spec) return;
 
     const id = generateId();
+    const headingAngle = Math.random() * Math.PI * 2;
+    const initialSpeed = spec.speed / 100 * (0.65 + Math.random() * 0.2);
     const fishData = {
       id,
       species,
@@ -108,12 +183,15 @@ export default class FishSystem {
       age: 0,
       health: 1.0,
       stress: 0.0,
-      vx: (Math.random() - 0.5) * 0.5,
-      vy: (Math.random() - 0.5) * 0.5,
+      vx: Math.cos(headingAngle) * initialSpeed,
+      vy: Math.sin(headingAngle) * initialSpeed,
+      headingAngle,
+      turnCooldown: this._nextTurnCooldown(),
       wanderAngle: Math.random() * Math.PI * 2,
       fleeTimer: 0,
       fleeVx: 0,
       fleeVy: 0,
+      forceImmediateTurn: false,
       jumping: false,
       jumpTimer: 0,
     };
@@ -233,16 +311,21 @@ export default class FishSystem {
   _updateSteering(f: any, allFish: any, dt: any) {
     const spec = this.speciesDefs[f.species];
     if (!spec) return;
+    this._ensureFishMotionState(f, spec);
 
-    const speed = spec.speed / 100;
+    const maxSpeed = spec.speed / 100;
+    const minCruiseSpeed = maxSpeed * 0.5;
     const WANDER_STRENGTH = 0.015;
     const SEPARATION_DIST = 0.6;
-    const BOUND_MARGIN = 0.3;
-    const MAX_SPEED = speed;
+    const BOUND_MARGIN = 0.35;
+    const minX = 0.1;
+    const maxX = this.bounds.gridW - 0.1;
+    const minY = 0.1;
+    const maxY = this.bounds.gridH - 0.1;
 
-    f.wanderAngle += (Math.random() - 0.5) * 0.4;
-    let wx = Math.cos(f.wanderAngle) * WANDER_STRENGTH;
-    let wy = Math.sin(f.wanderAngle) * WANDER_STRENGTH;
+    f.wanderAngle += (Math.random() - 0.5) * 0.15;
+    let desiredVx = Math.cos(f.wanderAngle) * WANDER_STRENGTH;
+    let desiredVy = Math.sin(f.wanderAngle) * WANDER_STRENGTH;
 
     let sx = 0, sy = 0;
     allFish.forEach((other: any) => {
@@ -257,28 +340,69 @@ export default class FishSystem {
     if (allFish.length > 1) {
       allFish.forEach((other: any) => { if (other.id !== f.id) { cx += other.x; cy += other.y; } });
       cx /= (allFish.length - 1); cy /= (allFish.length - 1);
-      wx += (cx - f.x) * 0.001; wy += (cy - f.y) * 0.001;
+      desiredVx += (cx - f.x) * 0.001; desiredVy += (cy - f.y) * 0.001;
     }
 
     if (f.fleeTimer > 0) {
-      f.fleeTimer -= dt;
+      f.fleeTimer = Math.max(0, f.fleeTimer - dt);
       const fleeStr = Math.min(1, f.fleeTimer / 0.5) * 0.3;
-      wx += f.fleeVx * fleeStr; wy += f.fleeVy * fleeStr;
+      desiredVx += f.fleeVx * fleeStr; desiredVy += f.fleeVy * fleeStr;
     }
 
-    if (f.x < BOUND_MARGIN) wx += 0.05; if (f.x > 4 - BOUND_MARGIN) wx -= 0.05;
-    if (f.y < BOUND_MARGIN) wy += 0.05; if (f.y > 4 - BOUND_MARGIN) wy -= 0.05;
+    if (f.x < BOUND_MARGIN) desiredVx += 0.05;
+    if (f.x > this.bounds.gridW - BOUND_MARGIN) desiredVx -= 0.05;
+    if (f.y < BOUND_MARGIN) desiredVy += 0.05;
+    if (f.y > this.bounds.gridH - BOUND_MARGIN) desiredVy -= 0.05;
 
-    f.vx = (f.vx + wx + sx) * 0.85;
-    f.vy = (f.vy + wy + sy) * 0.85;
+    desiredVx += sx;
+    desiredVy += sy;
 
-    const spd = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
-    if (spd > MAX_SPEED) { f.vx = f.vx / spd * MAX_SPEED; f.vy = f.vy / spd * MAX_SPEED; }
+    f.turnCooldown = Math.max(0, f.turnCooldown - dt);
+    const currentAngle = Number.isFinite(f.headingAngle) ? f.headingAngle : Math.atan2(f.vy, f.vx);
+    const desiredAngle = Math.abs(desiredVx) > 0.0001 || Math.abs(desiredVy) > 0.0001
+      ? Math.atan2(desiredVy, desiredVx)
+      : currentAngle;
+    const wantsTurn = Math.abs(angleDelta(currentAngle, desiredAngle)) > TURN_THRESHOLD_RADIANS;
+    const headingOutward =
+      (f.x <= minX + 0.02 && Math.cos(currentAngle) < 0) ||
+      (f.x >= maxX - 0.02 && Math.cos(currentAngle) > 0) ||
+      (f.y <= minY + 0.02 && Math.sin(currentAngle) < 0) ||
+      (f.y >= maxY - 0.02 && Math.sin(currentAngle) > 0);
 
-    f.x = Math.max(0.1, Math.min(3.9, f.x + f.vx * dt));
-    f.y = Math.max(0.1, Math.min(3.9, f.y + f.vy * dt));
+    if (f.forceImmediateTurn || (f.turnCooldown <= 0 && (wantsTurn || headingOutward))) {
+      f.headingAngle = desiredAngle;
+      f.turnCooldown = this._nextTurnCooldown();
+      f.forceImmediateTurn = false;
+    }
 
-    this.storage.updateFish(f.id, { x: f.x, y: f.y, vx: f.vx, vy: f.vy, wanderAngle: f.wanderAngle, fleeTimer: f.fleeTimer });
+    const currentSpeed = Math.hypot(f.vx, f.vy);
+    let targetSpeed = f.fleeTimer > 0
+      ? maxSpeed
+      : Math.max(minCruiseSpeed, Math.min(maxSpeed, currentSpeed * 0.98 + Math.hypot(desiredVx, desiredVy) * 1.2));
+
+    if (headingOutward && f.turnCooldown > 0) {
+      targetSpeed = 0;
+    }
+
+    const speedLerp = targetSpeed === 0 ? 0.2 : 0.08;
+    const nextSpeed = currentSpeed + (targetSpeed - currentSpeed) * speedLerp;
+    f.vx = Math.cos(f.headingAngle) * nextSpeed;
+    f.vy = Math.sin(f.headingAngle) * nextSpeed;
+
+    f.x = Math.max(minX, Math.min(maxX, f.x + f.vx * dt));
+    f.y = Math.max(minY, Math.min(maxY, f.y + f.vy * dt));
+
+    this.storage.updateFish(f.id, {
+      x: f.x,
+      y: f.y,
+      vx: f.vx,
+      vy: f.vy,
+      headingAngle: f.headingAngle,
+      wanderAngle: f.wanderAngle,
+      fleeTimer: f.fleeTimer,
+      turnCooldown: f.turnCooldown,
+      forceImmediateTurn: f.forceImmediateTurn,
+    });
   }
 
   // ── Jumping ────────────────────────────────────────────────────────────────
@@ -328,9 +452,26 @@ export default class FishSystem {
     const spec = this.speciesDefs[f.species];
     const fleeDist = spec.personality === 'skittish' ? 1.5 : spec.personality === 'calm' ? 0.6 : 1.0;
     const angle = Math.random() * Math.PI * 2;
+    const fleeSpeed = Math.max(spec.speed / 100, Math.hypot(f.vx ?? 0, f.vy ?? 0));
+    f.headingAngle = angle;
+    f.vx = Math.cos(angle) * fleeSpeed;
+    f.vy = Math.sin(angle) * fleeSpeed;
+    f.wanderAngle = angle;
+    f.turnCooldown = this._nextTurnCooldown();
     f.fleeVx = Math.cos(angle) * fleeDist; f.fleeVy = Math.sin(angle) * fleeDist;
     f.fleeTimer = 1.2;
-    this.storage.updateFish(f.id, { fleeVx: f.fleeVx, fleeVy: f.fleeVy, fleeTimer: f.fleeTimer });
+    f.forceImmediateTurn = false;
+    this.storage.updateFish(f.id, {
+      vx: f.vx,
+      vy: f.vy,
+      headingAngle: f.headingAngle,
+      wanderAngle: f.wanderAngle,
+      turnCooldown: f.turnCooldown,
+      fleeVx: f.fleeVx,
+      fleeVy: f.fleeVy,
+      fleeTimer: f.fleeTimer,
+      forceImmediateTurn: f.forceImmediateTurn,
+    });
     this._splashAt(f.x, f.y);
     if ((this.scene as any).audio) (this.scene as any).audio.playSfx('sfx_splash');
   }
@@ -372,7 +513,9 @@ export default class FishSystem {
     const spec = this.speciesDefs[f.species];
 
     // --- 8-directional sprite switching ---
-    const dirIdx = velocityToDir(f.vx, f.vy);
+    const dirIdx = Math.hypot(f.vx ?? 0, f.vy ?? 0) > 0.02
+      ? velocityToDir(f.vx, f.vy)
+      : angleToDir(f.headingAngle ?? 0);
     const baseTexKey  = `fish_${f.species}_${DIR_BASES[dirIdx]}`;
     const fallbackKey = `fish_${f.species}`;
     const texKey = this.scene.textures.exists(baseTexKey) ? baseTexKey : fallbackKey;
@@ -478,6 +621,7 @@ export default class FishSystem {
     });
     harvestBtn.addEventListener('click', () => {
       if (!this._infoPanelFishId) return;
+      if ((this.scene as any).audio) (this.scene as any).audio.playSfx('sfx_plop');
       this.removeFish(this._infoPanelFishId);
       this._closeInfoPanel();
     });
@@ -563,7 +707,10 @@ export default class FishSystem {
         f.name = this._generateFishName(f.species);
         this.storage.updateFish(f.id, { name: f.name });
       }
-      if (spec) this._createFishSprite(f, spec);
+      if (spec) {
+        this._ensureFishMotionState(f, spec);
+        this._createFishSprite(f, spec);
+      }
     });
   }
 }

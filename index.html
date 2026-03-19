@@ -21,14 +21,19 @@
       background: #1a2a1a;
       overflow: hidden;
       font-family: 'Georgia', serif;
+      overscroll-behavior: none;
     }
     #game-container {
       width: 100%; height: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
+      touch-action: none;
     }
-    canvas { display: block; }
+    canvas {
+      display: block;
+      touch-action: none;
+    }
   </style>
 </head>
 <body>

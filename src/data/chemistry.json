@@ -69,6 +69,15 @@
       "pH_low": 6.5,
       "pH_high": 8.5,
       "do_low": 5.0
+    },
+
+    "plantStressThreshold": {
+      "ammonia": 0.08,
+      "nitrite": 0.4,
+      "nitrate": 45,
+      "pH_low": 6.3,
+      "pH_high": 8.8,
+      "do_low": 4.5
     }
   }
 }

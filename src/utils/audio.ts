@@ -26,19 +26,21 @@ export default class AudioManager {
 
   /** Start layered ambient loops once unlocked */
   _startAmbient() {
-    const ambientKeys = ['ambient_water', 'ambient_frogs', 'ambient_wind'];
-    const delays = [0, 1500, 3000]; // stagger start for natural feel
+    const ambientLayers = [
+      { key: 'ambient_water', delay: 0, volume: this.ambientVolume * 0.75 },
+      { key: 'bgm_chill', delay: 600, volume: this.ambientVolume * 0.45 },
+    ];
 
-    ambientKeys.forEach((key, i) => {
+    ambientLayers.forEach(({ key, delay, volume }) => {
       if (this.scene.cache.audio.has(key)) {
         setTimeout(() => {
           const snd = this.scene.sound.add(key, {
             loop: true,
-            volume: this.ambientVolume * (i === 0 ? 1.0 : 0.6),
+            volume,
           });
           snd.play();
           this._sounds[key] = snd;
-        }, delays[i]);
+        }, delay);
       }
     });
   }

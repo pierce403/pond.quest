@@ -180,6 +180,11 @@ npm run verify:fish-transparency -- --url http://127.0.0.1:4174/fish_test.html
 - `open_browser_url` frequently times out. Don't block work on browser automation.
 - For visual QA, serve the dev server and ask Pierce to check directly.
 
+### Mobile zoom and tray interactions need pointer-safe handling
+- Full-screen game surfaces should set `touch-action: none` on `#game-container` and `canvas`, otherwise mobile gestures can get swallowed before Phaser sees them.
+- The safe zoom-out cap is dynamic now: compute it from the meadow background bounds (`camera.width / meadowWidth`, `camera.height / meadowHeight`) so you never zoom past the grass.
+- HTML inventory controls should use `pointerdown` / `pointermove` / `pointerup`, not mouse-only events, or mobile drag/drop will be unreliable.
+
 ---
 
 ## 🤖 Agent Tips
@@ -192,7 +197,10 @@ npm run verify:fish-transparency -- --url http://127.0.0.1:4174/fish_test.html
 - The chemistry simulation runs on a **game-time tick** (1 real second = configurable in-game minutes), not real-time.
 - 8-directional fish sprite convention: base textures `fish_{species}_{e|ne|n|se}`; W/NW/SW/S derived via `setFlipX(true)`. Direction chosen by mapping `atan2(screenVy, screenVx)` to 45° sectors.
 - Fish info panel is a plain HTML overlay (not Phaser), positioned top-left. Pattern is reusable for plant/tile info panels.
+- Plant info panel now mirrors the fish panel pattern, but sits top-right; plant health/sickness/effectiveness are updated in `EcosystemSystem`, while `PlantSystem` handles rendering and panel text.
+- Inventory tray is responsive now: on narrow screens labels/dividers hide, cards shrink, the tray wraps, and drag/drop uses pointer events.
 - `generate_image` fish PNGs need a real matting pass before shipping — use `scripts/fix_fish_transparency.py`, then confirm with `npm run verify:fish-transparency`.
+- In dev, `window.__pondQuestGame` is exposed from `src/main.ts`, which makes Playwright scene-state checks much easier.
 - Fish transparency cleanup is reproducible now: use `scripts/fix_fish_transparency.py` and then `npm run verify:fish-transparency`.
 - `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
 
@@ -208,3 +216,4 @@ npm run verify:fish-transparency -- --url http://127.0.0.1:4174/fish_test.html
 - Suggest AGENTS.md updates at end of each session to keep it current and concise.
 - Session 2026-03-18: Added meadow background, scroll zoom, drag-and-drop inventory tray, AI fish sprites (8-directional), fish info panel with rename/harvest.
 - Session 2026-03-18: Cleaned all shipped fish PNGs with `rembg` alpha matting, added `scripts/fix_fish_transparency.py`, added Playwright-based `npm run verify:fish-transparency`, and saved the latest QA screenshot to `artifacts/fish_transparency_check.png`.
+- Session 2026-03-19: Added dynamic mobile-safe zoom clamping, pointer-based tray drag/drop, fish turn cooldowns to kill direction jitter, richer procedural plant graphics plus plant stats/pull panel, chemistry-driven plant sickness/effectiveness, and procedural `ambient_water` / `bgm_chill` / `sfx_plop` / `sfx_splash` audio.

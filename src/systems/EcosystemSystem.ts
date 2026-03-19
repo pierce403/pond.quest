@@ -88,15 +88,9 @@ export default class EcosystemSystem {
 
     // ── 4. Plants: O₂ production + nitrate absorption ─────────────────────
     // Production scales with plant maturity (growthProgress 0→1).
-    let o2Production = 0;
-    let no3Absorbed = 0;
-    plants.forEach(p => {
-      const spec = this.speciesDefs.plants[p.species];
-      if (!spec) return;
-      const maturity = p.growthProgress || 0;
-      o2Production += spec.doProduction * maturity / (waterVolume / 1000);
-      no3Absorbed += spec.nitrateAbsorption * maturity / (waterVolume / 1000);
-    });
+    const plantRates = this._updatePlantHealth(chem, plants, waterVolume);
+    let o2Production = plantRates.o2Production;
+    let no3Absorbed = plantRates.no3Absorbed;
     chem.dissolvedOxygen = Math.min(
       this.cfg.thresholds.dissolvedOxygen.saturation,
       chem.dissolvedOxygen + o2Production - o2Demand
@@ -156,6 +150,57 @@ export default class EcosystemSystem {
 
       this.storage.updateFish(f.id, { stress: newStress });
     });
+  }
+
+  _updatePlantHealth(chem, plants, waterVolume) {
+    const stress = this.cfg.simulation.plantStressThreshold;
+    let o2Production = 0;
+    let no3Absorbed = 0;
+
+    plants.forEach(p => {
+      const spec = this.speciesDefs.plants[p.species];
+      if (!spec) return;
+
+      let stressScore = 0;
+      if (chem.ammonia > stress.ammonia) stressScore += (chem.ammonia - stress.ammonia) * 7;
+      if (chem.nitrite > stress.nitrite) stressScore += (chem.nitrite - stress.nitrite) * 3.5;
+      if (chem.nitrate > stress.nitrate) stressScore += (chem.nitrate - stress.nitrate) * 0.08;
+      if (chem.pH < stress.pH_low) stressScore += (stress.pH_low - chem.pH) * 1.8;
+      if (chem.pH > stress.pH_high) stressScore += (chem.pH - stress.pH_high) * 1.8;
+      if (chem.dissolvedOxygen < stress.do_low) stressScore += (stress.do_low - chem.dissolvedOxygen) * 1.6;
+
+      const currentSickness = p.sickness ?? 0;
+      const currentHealth = p.health ?? 1;
+      const nextSickness = stressScore > 0
+        ? Math.min(1, currentSickness + stressScore * 0.005)
+        : Math.max(0, currentSickness - 0.003);
+      const nextHealth = stressScore > 0
+        ? Math.max(0.2, currentHealth - stressScore * 0.002)
+        : Math.min(1, currentHealth + 0.0015);
+      const age = (p.age ?? 0) + 1;
+      const maturity = Math.max(0.2, p.growthProgress ?? 0);
+      const effectiveness = Math.max(
+        0.08,
+        Math.min(1, maturity * (0.35 + nextHealth * 0.65) * (1 - nextSickness * 0.7))
+      );
+      const oxygenRate = spec.doProduction * effectiveness;
+      const nitrateRate = spec.nitrateAbsorption * effectiveness;
+
+      o2Production += oxygenRate / (waterVolume / 1000);
+      no3Absorbed += nitrateRate / (waterVolume / 1000);
+
+      this.storage.updatePlant(p.id, {
+        age,
+        health: nextHealth,
+        sickness: nextSickness,
+        effectiveness,
+        oxygenRate,
+        nitrateRate,
+        isSick: nextSickness >= 0.35,
+      });
+    });
+
+    return { o2Production, no3Absorbed };
   }
 
   /**
