@@ -16,6 +16,15 @@ import { generateId } from './StorageSystem';
 import { isoToScreen, TILE_W, TILE_H } from '../utils/iso';
 
 export default class FishSystem {
+  declare scene: Phaser.Scene;
+  declare storage: any;
+  declare bounds: any;
+  declare speciesDefs: any;
+  declare _fishObjects: Map<string, any>;
+  declare _particles: any;
+  declare _splashGraphics: Phaser.GameObjects.Graphics;
+  declare _activeSplashes: any[];
+
   /**
    * @param {Phaser.Scene} scene
    * @param {StorageSystem} storage
@@ -28,7 +37,7 @@ export default class FishSystem {
     this.speciesDefs = speciesDefs.fish;
 
     // Phaser graphics/containers for rendering
-    this._fishObjects = new Map(); // fishId → { gfx, body, label, state }
+    this._fishObjects = new Map(); // fishId → { sprite, shadow, glowRing, label, spec }
     this._particles = null;
     this._setupParticles();
   }
@@ -74,32 +83,59 @@ export default class FishSystem {
     const container = this.scene.add.container(0, 0);
     container.setDepth(10 + fishData.x + fishData.y);
 
-    // Fish body — drawn procedurally as an ellipse + tail
-    const gfx = this.scene.add.graphics();
-    this._drawFishShape(gfx, spec, 0, 0, fishData.stress || 0);
+    // Shadow ellipse beneath the fish — provides a sense of depth above the water
+    const shadow = this.scene.add.graphics();
+    shadow.fillStyle(0x000000, 0.18);
+    shadow.fillEllipse(4, 6, spec.size * 2.2, spec.size * 0.9);
 
-    // Subtle label (species name, tiny) — hidden by default
-    const label = this.scene.add.text(0, -22, spec.name, {
+    // Fish sprite — use the pre-loaded AI-generated PNG keyed by species
+    const textureKey = `fish_${fishData.species}`;
+    const hasTexture = this.scene.textures.exists(textureKey);
+    let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics;
+
+    if (hasTexture) {
+      sprite = this.scene.add.image(0, 0, textureKey);
+      // Scale so the display width roughly matches spec.size * 2 pixels
+      const targetW = spec.size * 2.6;
+      const tex = this.scene.textures.get(textureKey).getSourceImage() as HTMLImageElement;
+      const scale = targetW / (tex.width || 200);
+      (sprite as Phaser.GameObjects.Image).setScale(scale);
+      (sprite as Phaser.GameObjects.Image).setOrigin(0.5, 0.55); // slightly below centre for natural look
+    } else {
+      // Fallback: simple coloured ellipse if texture failed to load
+      const gfxFallback = this.scene.add.graphics();
+      this._drawFishShape(gfxFallback, spec, 0, 0, 0);
+      sprite = gfxFallback;
+    }
+
+    // Hover glow ring (hidden by default)
+    const glowRing = this.scene.add.graphics();
+    glowRing.lineStyle(2, 0xffffff, 0);
+    glowRing.strokeCircle(0, 0, spec.size * 1.4);
+
+    // Species label — fades in on hover
+    const label = this.scene.add.text(0, -spec.size - 14, spec.name, {
       fontSize: '9px',
       color: '#e8f4e8',
-      alpha: 0,
       fontFamily: 'Georgia, serif',
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setAlpha(0);
 
-    container.add([gfx, label]);
+    container.add([shadow, glowRing, sprite as Phaser.GameObjects.GameObject, label]);
     container.setInteractive(
-      new Phaser.Geom.Circle(0, 0, spec.size + 6),
+      new Phaser.Geom.Circle(0, 0, spec.size + 8),
       Phaser.Geom.Circle.Contains
     );
     container.on('pointerover', () => {
-      this.scene.tweens.add({ targets: label, alpha: 0.8, duration: 200 });
+      this.scene.tweens.add({ targets: label, alpha: 0.9, duration: 200 });
+      this.scene.tweens.add({ targets: glowRing, alpha: 0.5, duration: 200 });
     });
     container.on('pointerout', () => {
       this.scene.tweens.add({ targets: label, alpha: 0, duration: 300 });
+      this.scene.tweens.add({ targets: glowRing, alpha: 0, duration: 300 });
     });
     container.on('pointerdown', () => this._pokeFish(fishData.id));
 
-    this._fishObjects.set(fishData.id, { container, gfx, label, spec });
+    this._fishObjects.set(fishData.id, { container, sprite, shadow, glowRing, label, spec });
     this._positionFishContainer(fishData);
   }
 
@@ -330,12 +366,40 @@ export default class FishSystem {
     const obj = this._fishObjects.get(f.id);
     if (!obj || f.jumping) return;
     const spec = this.speciesDefs[f.species];
-    // Redraw if stress changed significantly (avoid redrawing every frame)
-    this._drawFishShape(obj.gfx, spec, 0, 0, f.stress || 0);
 
-    // Flip graphics based on movement direction (only flip gfx so text stays readable)
-    const movingLeft = (f.vx - f.vy) < 0;
-    obj.gfx.setScale(movingLeft ? -1 : 1, 1);
+    // Swimming wobble: subtle X-scale oscillation to mimic body undulation
+    const t = this.scene.time.now * 0.003;
+    const wobble = 1 + Math.sin(t * spec.speed * 0.04 + f.x) * 0.06;
+
+    // Determine facing direction from velocity projected onto screen-right
+    // In isometric view: screen-right = iso(+x) - iso(+y)
+    const screenVx = f.vx - f.vy;
+    const facingLeft = screenVx < 0;
+
+    if (obj.sprite && (obj.sprite as Phaser.GameObjects.Image).setFlipX) {
+      const img = obj.sprite as Phaser.GameObjects.Image;
+      img.setFlipX(facingLeft);
+      // Apply wobble on top of base scale
+      const baseScale = img.scaleX < 0 ? -Math.abs(img.scaleX) : Math.abs(img.scaleX);
+      img.setScale(Math.abs(baseScale) * (facingLeft ? -1 : 1) * wobble, Math.abs(img.scaleY));
+
+      // Stress tint: shift toward blue-grey when stressed
+      if (f.stress > 0.3) {
+        const stressFactor = Math.min(1, (f.stress - 0.3) / 0.7);
+        const tint = Phaser.Display.Color.Interpolate.ColorWithColor(
+          { r: 255, g: 255, b: 255, a: 255 } as any,
+          { r: 140, g: 160, b: 190, a: 255 } as any,
+          100, Math.floor(stressFactor * 80)
+        );
+        img.setTint(Phaser.Display.Color.GetColor(tint.r, tint.g, tint.b));
+      } else {
+        img.clearTint();
+      }
+    } else if (obj.sprite) {
+      // Fallback graphics: just flip via scale
+      const movingLeft = screenVx < 0;
+      (obj.sprite as Phaser.GameObjects.Graphics).setScale(movingLeft ? -1 : 1, 1);
+    }
   }
 
   /** Remove a fish entity and its sprite */

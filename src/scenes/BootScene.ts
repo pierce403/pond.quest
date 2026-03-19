@@ -44,6 +44,11 @@ export default class BootScene extends Phaser.Scene {
       fill.fillRoundedRect(barX + 2, barY + 2, (barW - 4) * pct, barH - 4, 6);
     });
 
+    // ── Fish sprites (AI-generated PNGs) ────────────────────────────────
+    this.load.image('fish_koi',       'assets/images/fish_koi.png');
+    this.load.image('fish_goldfish',  'assets/images/fish_goldfish.png');
+    this.load.image('fish_shubunkin', 'assets/images/fish_shubunkin.png');
+
     // ── Audio assets (generated procedurally via Web Audio later) ──────
     // Placeholder: we'll generate ambient audio at runtime using Web Audio API
     // If real audio files exist in assets/audio/, load them here:
