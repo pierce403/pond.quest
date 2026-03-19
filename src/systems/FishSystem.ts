@@ -45,6 +45,7 @@ const TURN_INTERVAL_VARIANCE = 0.5;
 const TURN_THRESHOLD_RADIANS = Math.PI / 8;
 const FISH_VISUAL_REFRESH_MS = 33;
 const MAX_FISH_TEXTURE_DIMENSION = 160;
+const DEFAULT_SWIM_SPEED_SCALE = 0.5;
 const POKE_FLEE_DURATION = 2.2;
 const POKE_FLEE_BURST_MULTIPLIER = 1.9;
 const POKE_FLEE_STEER_STRENGTH = 1.2;
@@ -141,6 +142,14 @@ export default class FishSystem {
     return Math.max(0.12, spec.size / 85);
   }
 
+  _getCruiseMaxSpeed(spec: any) {
+    return (spec.speed / 100) * DEFAULT_SWIM_SPEED_SCALE;
+  }
+
+  _getPokeBurstSpeed(spec: any) {
+    return (spec.speed / 100) * POKE_FLEE_BURST_MULTIPLIER;
+  }
+
   _clampFishToPond(f: any, spec: any) {
     const inset = this._getSwimInset(spec);
     f.x = Phaser.Math.Clamp(f.x, inset, this.bounds.gridW - inset);
@@ -148,7 +157,7 @@ export default class FishSystem {
   }
 
   _ensureFishMotionState(f: any, spec: any) {
-    const maxSpeed = spec.speed / 100;
+    const maxSpeed = this._getCruiseMaxSpeed(spec);
     const currentSpeed = Math.hypot(f.vx ?? 0, f.vy ?? 0);
     const headingAngle = Number.isFinite(f.headingAngle)
       ? f.headingAngle
@@ -238,7 +247,7 @@ export default class FishSystem {
 
     const id = generateId();
     const headingAngle = Math.random() * Math.PI * 2;
-    const initialSpeed = spec.speed / 100 * (0.65 + Math.random() * 0.2);
+    const initialSpeed = this._getCruiseMaxSpeed(spec) * (0.65 + Math.random() * 0.2);
     const fishData = {
       id,
       species,
@@ -424,8 +433,9 @@ export default class FishSystem {
     if (!spec) return;
     this._ensureFishMotionState(f, spec);
 
-    const maxSpeed = spec.speed / 100;
-    const minCruiseSpeed = maxSpeed * 0.5;
+    const cruiseMaxSpeed = this._getCruiseMaxSpeed(spec);
+    const fleeTopSpeed = this._getPokeBurstSpeed(spec);
+    const minCruiseSpeed = cruiseMaxSpeed * 0.5;
     const WANDER_STRENGTH = 0.015;
     const SEPARATION_DIST = 0.6;
     const swimInset = this._getSwimInset(spec);
@@ -493,12 +503,12 @@ export default class FishSystem {
     let targetSpeed;
     if (f.fleeTimer > 0) {
       const fleeRatio = Phaser.Math.Clamp(f.fleeTimer / POKE_FLEE_DURATION, 0, 1);
-      const fleeBoost = 1 + Math.pow(fleeRatio, 0.75) * (POKE_FLEE_BURST_MULTIPLIER - 1);
-      targetSpeed = maxSpeed * fleeBoost;
+      const fleeBoost = Math.pow(fleeRatio, 0.75);
+      targetSpeed = Phaser.Math.Linear(cruiseMaxSpeed, fleeTopSpeed, fleeBoost);
     } else {
       targetSpeed = Math.max(
         minCruiseSpeed,
-        Math.min(maxSpeed, currentSpeed * 0.98 + Math.hypot(desiredVx, desiredVy) * 1.2)
+        Math.min(cruiseMaxSpeed, currentSpeed * 0.98 + Math.hypot(desiredVx, desiredVy) * 1.2)
       );
     }
 
@@ -676,7 +686,7 @@ export default class FishSystem {
       ? Math.atan2(awayY, awayX) + (Math.random() - 0.5) * 0.24
       : Math.random() * Math.PI * 2;
     const fleeSpeed = Math.max(
-      (spec.speed / 100) * POKE_FLEE_BURST_MULTIPLIER,
+      this._getPokeBurstSpeed(spec),
       Math.hypot(f.vx ?? 0, f.vy ?? 0) * 1.35
     );
     f.headingAngle = angle;
