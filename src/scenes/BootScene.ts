@@ -44,10 +44,18 @@ export default class BootScene extends Phaser.Scene {
       fill.fillRoundedRect(barX + 2, barY + 2, (barW - 4) * pct, barH - 4, 6);
     });
 
-    // ── Fish sprites (AI-generated PNGs) ────────────────────────────────
-    this.load.image('fish_koi',       'assets/images/fish_koi.png');
-    this.load.image('fish_goldfish',  'assets/images/fish_goldfish.png');
-    this.load.image('fish_shubunkin', 'assets/images/fish_shubunkin.png');
+    // ── Fish sprites — 4 directional views per species (AI-generated PNGs) ─
+    // Directions: e(right), ne(upper-right), n(away/back), se(lower-right)
+    // w/nw/sw/s are derived by flipping the corresponding base sprite
+    const SPECIES = ['koi', 'goldfish', 'shubunkin'];
+    const DIRS    = ['e', 'ne', 'n', 'se'];
+    for (const sp of SPECIES) {
+      for (const dir of DIRS) {
+        this.load.image(`fish_${sp}_${dir}`, `assets/images/fish_${sp}_${dir}.png`);
+      }
+      // Legacy key (used as fallback in FishSystem)
+      this.load.image(`fish_${sp}`, `assets/images/fish_${sp}_e.png`);
+    }
 
     // ── Audio assets (generated procedurally via Web Audio later) ──────
     // Placeholder: we'll generate ambient audio at runtime using Web Audio API
