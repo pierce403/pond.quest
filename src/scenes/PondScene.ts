@@ -45,6 +45,7 @@ const COLORS = {
 
 // Zoom bounds
 const MAX_ZOOM = 4.0;
+const AMBIENT_ANIMATION_INTERVAL_MS = 50;
 
 type PlacementSelection = {
   type: 'fish' | 'plant';
@@ -99,6 +100,8 @@ export default class PondScene extends Phaser.Scene {
   declare _placementHintEl: HTMLElement;
   declare _placementPreviewGfx: Phaser.GameObjects.Graphics;
   declare _placementSelection: PlacementSelection | null;
+  declare _lastWaterAnimTime: number;
+  declare _lastMeadowAnimTime: number;
 
   constructor() {
     super({ key: 'PondScene' });
@@ -171,6 +174,8 @@ export default class PondScene extends Phaser.Scene {
     // ── Scroll-to-zoom ────────────────────────────────────────────────────
     this._currentZoom = 1.0;
     this._pinchPrevDistance = null;
+    this._lastWaterAnimTime = -Infinity;
+    this._lastMeadowAnimTime = -Infinity;
     this.cameras.main.setZoom(this._clampZoom(this._currentZoom));
     this._currentZoom = this.cameras.main.zoom;
     this.input.on('wheel', (_pointer: any, _gameObjects: any, _deltaX: number, deltaY: number) => {
@@ -202,8 +207,14 @@ export default class PondScene extends Phaser.Scene {
     this.ecosystem.update(delta);
     this.fishSystem.update(delta);
     this.plantSystem.update(delta);
-    this._animateWaterShimmer(time);
-    this._animateMeadow(time);
+    if (time - this._lastWaterAnimTime >= AMBIENT_ANIMATION_INTERVAL_MS) {
+      this._animateWaterShimmer(time);
+      this._lastWaterAnimTime = time;
+    }
+    if (time - this._lastMeadowAnimTime >= AMBIENT_ANIMATION_INTERVAL_MS) {
+      this._animateMeadow(time);
+      this._lastMeadowAnimTime = time;
+    }
     this._updatePlacementPreview(this.input.activePointer);
 
     // Smooth zoom towards target
@@ -875,6 +886,15 @@ export default class PondScene extends Phaser.Scene {
 
   _updatePlacementPreview(pointer: Phaser.Input.Pointer) {
     if (!this._placementPreviewGfx) return;
+    if (!this._placementSelection) {
+      if (this._placementPreviewGfx.visible) {
+        this._placementPreviewGfx.clear();
+        this._placementPreviewGfx.setVisible(false);
+      }
+      return;
+    }
+
+    this._placementPreviewGfx.setVisible(true);
     this._placementPreviewGfx.clear();
 
     const preview = this._resolvePlacementPreview(pointer);

@@ -43,6 +43,8 @@ const DIR_FLIPX  = [false, false, true, true,  true, true,  false, false];
 const TURN_INTERVAL_SECONDS = 2.0;
 const TURN_INTERVAL_VARIANCE = 0.5;
 const TURN_THRESHOLD_RADIANS = Math.PI / 8;
+const FISH_VISUAL_REFRESH_MS = 33;
+const MAX_FISH_TEXTURE_DIMENSION = 160;
 
 function normalizeAngle(angle: number): number {
   while (angle <= -Math.PI) angle += Math.PI * 2;
@@ -83,6 +85,7 @@ export default class FishSystem {
   declare _activeSplashes: any[];
   declare _infoPanel: HTMLElement | null;
   declare _infoPanelFishId: string | null;
+  declare _visualRefreshAccum: number;
 
   constructor(scene: Phaser.Scene, storage: any, pondBounds: any) {
     this.scene = scene;
@@ -94,6 +97,7 @@ export default class FishSystem {
     this._particles = null;
     this._infoPanel = null;
     this._infoPanelFishId = null;
+    this._visualRefreshAccum = 0;
     this._setupParticles();
     this._buildInfoPanel();
   }
@@ -248,6 +252,35 @@ export default class FishSystem {
     return id;
   }
 
+  _getOptimizedTextureKey(texKey: string) {
+    if (!this.scene.textures.exists(texKey)) return texKey;
+
+    const optimizedKey = `${texKey}__opt`;
+    if (this.scene.textures.exists(optimizedKey)) {
+      return optimizedKey;
+    }
+
+    const source = this.scene.textures.get(texKey).getSourceImage() as HTMLImageElement;
+    const srcW = source?.width ?? 0;
+    const srcH = source?.height ?? 0;
+    const maxDim = Math.max(srcW, srcH);
+    if (!maxDim || maxDim <= MAX_FISH_TEXTURE_DIMENSION) {
+      return texKey;
+    }
+
+    const scale = MAX_FISH_TEXTURE_DIMENSION / maxDim;
+    const width = Math.max(1, Math.round(srcW * scale));
+    const height = Math.max(1, Math.round(srcH * scale));
+    const canvasTexture = this.scene.textures.createCanvas(optimizedKey, width, height);
+    const ctx = canvasTexture.getContext();
+    ctx.clearRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, width, height);
+    canvasTexture.refresh();
+    return optimizedKey;
+  }
+
   _createFishSprite(fishData: any, spec: any) {
     const container = this.scene.add.container(0, 0);
     container.setDepth(10 + fishData.x + fishData.y);
@@ -260,7 +293,9 @@ export default class FishSystem {
     // Sprite — start with 'e' direction
     const baseKey = `fish_${fishData.species}_e`;
     const fallbackKey = `fish_${fishData.species}`;
-    const startKey = this.scene.textures.exists(baseKey) ? baseKey : fallbackKey;
+    const startKey = this.scene.textures.exists(baseKey)
+      ? this._getOptimizedTextureKey(baseKey)
+      : this._getOptimizedTextureKey(fallbackKey);
 
     let sprite: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics;
     let baseScale = 1;
@@ -333,6 +368,11 @@ export default class FishSystem {
   update(delta: number) {
     const dt = delta / 1000;
     const fish = this.storage.getFish();
+    this._visualRefreshAccum += delta;
+    const shouldRefreshVisuals = this._visualRefreshAccum >= FISH_VISUAL_REFRESH_MS;
+    if (shouldRefreshVisuals) {
+      this._visualRefreshAccum = 0;
+    }
 
     fish.forEach((f: any) => {
       if (f.jumping) {
@@ -342,7 +382,9 @@ export default class FishSystem {
         this._maybeJump(f, dt);
       }
       this._positionFishContainer(f);
-      this._refreshFishGraphics(f);
+      if (shouldRefreshVisuals) {
+        this._refreshFishGraphics(f);
+      }
     });
 
     this._updateSplashes(dt);
@@ -567,7 +609,9 @@ export default class FishSystem {
       : angleToDir(f.headingAngle ?? 0);
     const baseTexKey  = `fish_${f.species}_${DIR_BASES[dirIdx]}`;
     const fallbackKey = `fish_${f.species}`;
-    const texKey = this.scene.textures.exists(baseTexKey) ? baseTexKey : fallbackKey;
+    const texKey = this.scene.textures.exists(baseTexKey)
+      ? this._getOptimizedTextureKey(baseTexKey)
+      : this._getOptimizedTextureKey(fallbackKey);
     const flipX = DIR_FLIPX[dirIdx];
 
     const img = obj.sprite as Phaser.GameObjects.Image;

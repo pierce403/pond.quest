@@ -191,6 +191,12 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - The safe zoom-out cap is dynamic now: compute it from the meadow background bounds (`camera.width / meadowWidth`, `camera.height / meadowHeight`) so you never zoom past the grass.
 - The tray no longer uses drag/drop. Current UX is: tap a lit place button, then tap the pond. Keep placement validity in scene/system helpers (`spawnFishAt`, `canPlaceFishAt`, `findPlacementSlot`) rather than in DOM-only logic.
 
+### Performance investigation findings
+- Current slowdowns are more render-bound than simulation-bound. A Playwright timing pass showed `storage.save()` and chemistry ticks are cheap, while frame stalls remain much larger than wrapped JS method times.
+- Fish steering is still `O(n²)` in `FishSystem._updateSteering()` because each fish loops all others for separation/cohesion. This is acceptable for starter ponds but will scale poorly as fish counts rise.
+- Fish source PNGs are 640×640, but on-screen fish are only ~30–50 px wide. Downscale them into runtime `__opt` textures before rendering; sampling full-size textures is wasteful.
+- Decorative graphics do not need 60 FPS. Meadow sway and water shimmer are now throttled to ~20 FPS without obvious visual loss.
+
 ---
 
 ## 🤖 Agent Tips
@@ -227,3 +233,4 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Session 2026-03-19: Added dynamic mobile-safe zoom clamping, pointer-based tray drag/drop, fish turn cooldowns to kill direction jitter, richer procedural plant graphics plus plant stats/pull panel, chemistry-driven plant sickness/effectiveness, and procedural `ambient_water` / `bgm_chill` / `sfx_plop` / `sfx_splash` audio.
 - Session 2026-03-19: Replaced tray drag/drop with click-to-place buttons backed by scene/system placement checks, added reproducible social preview generation (`npm run generate:social-preview`), and added Playwright coverage for placement flow plus OG/embed assets (`npm run verify:placement-social`).
 - Session 2026-03-19: Tightened fish swimming bounds with a species-scaled interior inset so larger fish keep away from the pond rim; a short Playwright sample run saved `artifacts/fish_edge_margin_check.png`.
+- Session 2026-03-19: Investigated runtime slowdowns and found the main pressure is rendering, not `localStorage` or chemistry. Added runtime fish texture downscaling plus throttled ambient/meadow redraws to reduce GPU and per-frame churn.
