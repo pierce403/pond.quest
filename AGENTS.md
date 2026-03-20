@@ -225,6 +225,7 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Fish pokes should flee away from the click position, not in a random direction. `FishSystem._pokeFish()` now converts pointer screen coords back into iso space with `screenToIso()` and applies a short burst multiplier that tapers back down over roughly two seconds.
 - Fish cruising speed is now intentionally decoupled from poke burst speed. Tune normal motion through `FishSystem._getCruiseMaxSpeed()`; leave `_getPokeBurstSpeed()` higher so the pond stays calm at rest but fish still react sharply when poked.
 - Social cards are generated locally by `scripts/generate_social_preview.py`; the shipped tags point at `public/og-image.png` and `public/embed-image.png`, so regenerate those files instead of hand-editing the meta tags alone.
+- Branding strings live in `index.html` (`<title>`, OG/Twitter tags, and the `fc:miniapp` JSON) plus the boot/loading text in `src/scenes/BootScene.ts`; `rg -ni "fish quest|fishquest"` is a quick sweep for stale naming.
 - `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
 
 ---
@@ -247,3 +248,4 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Session 2026-03-19: Added fish collision resolution so intersecting fish get separated after movement; browser verification forced two koi into the same position and confirmed they separated beyond the configured minimum distance on the next frames.
 - Session 2026-03-19: Replaced synthesized placement/poke one-shots with trimmed public-domain water SFX from Wikimedia Commons / PDSounds, added `npm run verify:audio-flee`, and changed fish pokes so they dart away from the actual poke before easing back down to cruising speed.
 - Session 2026-03-19: Slowed default fish cruising to roughly half speed by adding a dedicated `DEFAULT_SWIM_SPEED_SCALE` in `FishSystem`, while keeping poke bursts fast through separate cruise vs flee speed helpers; `npm run verify:audio-flee -- --url http://127.0.0.1:4175/` still passed with a `0.253` baseline and `1.138` burst speed.
+- Session 2026-03-20: Replaced stale `Fish Quest` branding with `Pond Quest` in `index.html` metadata and `src/scenes/BootScene.ts`; `rg -ni "fish quest|fishquest"` came back clean afterward and `npm run build` still passed.
