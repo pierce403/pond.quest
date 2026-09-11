@@ -5,7 +5,12 @@
  */
 
 export default class PondTile {
-  constructor(data = {}) {
+  declare x: number;
+  declare y: number;
+  declare substrate: string;
+  declare moisture: number;
+
+  constructor(data: Partial<PondTile> = {}) {
     this.x = data.x || 0;
     this.y = data.y || 0;
     this.substrate = data.substrate || 'clay'; // clay, gravel, sand, mud

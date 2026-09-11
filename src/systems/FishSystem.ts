@@ -104,6 +104,7 @@ export default class FishSystem {
     this._visualRefreshAccum = 0;
     this._setupParticles();
     this._buildInfoPanel();
+    this.scene.events.once('shutdown', () => this._infoPanel?.remove());
   }
 
   _setupParticles() {
@@ -294,6 +295,7 @@ export default class FishSystem {
     const width = Math.max(1, Math.round(srcW * scale));
     const height = Math.max(1, Math.round(srcH * scale));
     const canvasTexture = this.scene.textures.createCanvas(optimizedKey, width, height);
+    if (!canvasTexture) return texKey;
     const ctx = canvasTexture.getContext();
     ctx.clearRect(0, 0, width, height);
     ctx.imageSmoothingEnabled = true;
@@ -388,7 +390,7 @@ export default class FishSystem {
   // ── Main update loop ───────────────────────────────────────────────────────
 
   update(delta: number) {
-    const dt = delta / 1000;
+    const dt = Math.min(delta, 50) / 1000;
     const fish = this.storage.getFish();
     this._visualRefreshAccum += delta;
     const shouldRefreshVisuals = this._visualRefreshAccum >= FISH_VISUAL_REFRESH_MS;
@@ -403,7 +405,6 @@ export default class FishSystem {
         this._updateSteering(f, fish, dt);
         this._maybeJump(f, dt);
       }
-      this._positionFishContainer(f);
     });
 
     this._resolveFishCollisions(fish);
@@ -420,7 +421,7 @@ export default class FishSystem {
     this._updateSplashes(dt);
 
     // Keep info panel synced if open
-    if (this._infoPanelFishId) {
+    if (shouldRefreshVisuals && this._infoPanelFishId) {
       const f = this.storage.getFish().find((x: any) => x.id === this._infoPanelFishId);
       if (f) this._syncInfoPanelData(f);
     }
@@ -445,7 +446,7 @@ export default class FishSystem {
     const minY = swimInset;
     const maxY = this.bounds.gridH - swimInset;
 
-    f.wanderAngle += (Math.random() - 0.5) * 0.15;
+    f.wanderAngle += (Math.random() - 0.5) * 0.15 * Math.sqrt(dt * 60);
     let desiredVx = Math.cos(f.wanderAngle) * WANDER_STRENGTH;
     let desiredVy = Math.sin(f.wanderAngle) * WANDER_STRENGTH;
 
@@ -517,24 +518,14 @@ export default class FishSystem {
     }
 
     const speedLerp = targetSpeed === 0 ? 0.2 : 0.08;
-    const nextSpeed = currentSpeed + (targetSpeed - currentSpeed) * speedLerp;
+    const nextSpeed = currentSpeed + (targetSpeed - currentSpeed) * (1 - Math.pow(1 - speedLerp, dt * 60));
     f.vx = Math.cos(f.headingAngle) * nextSpeed;
     f.vy = Math.sin(f.headingAngle) * nextSpeed;
 
     f.x = Math.max(minX, Math.min(maxX, f.x + f.vx * dt));
     f.y = Math.max(minY, Math.min(maxY, f.y + f.vy * dt));
 
-    this.storage.updateFish(f.id, {
-      x: f.x,
-      y: f.y,
-      vx: f.vx,
-      vy: f.vy,
-      headingAngle: f.headingAngle,
-      wanderAngle: f.wanderAngle,
-      fleeTimer: f.fleeTimer,
-      turnCooldown: f.turnCooldown,
-      forceImmediateTurn: f.forceImmediateTurn,
-    });
+    // f is the persisted row; avoid a second linear ID lookup for every frame.
   }
 
   _resolveFishCollisions(allFish: any[]) {
@@ -571,9 +562,10 @@ export default class FishSystem {
               : Number.isFinite(b.headingAngle)
                 ? b.headingAngle + Math.PI
                 : Math.random() * Math.PI * 2;
-            dx = Math.cos(fallbackAngle);
-            dy = Math.sin(fallbackAngle);
-            distance = 1;
+            // Keep an epsilon distance; 1 would make the overlap negative.
+            distance = 0.0001;
+            dx = Math.cos(fallbackAngle) * distance;
+            dy = Math.sin(fallbackAngle) * distance;
           }
 
           const nx = dx / distance;
@@ -818,7 +810,7 @@ export default class FishSystem {
     panel.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <span id="fip-species" style="font-size:11px;color:#6b9b7e;letter-spacing:1px;text-transform:uppercase"></span>
-        <button id="fip-close" style="background:none;border:none;color:#6b9b7e;font-size:16px;cursor:pointer;padding:0 2px;line-height:1">×</button>
+        <button id="fip-close" aria-label="Close fish details" style="background:none;border:none;color:#6b9b7e;font-size:16px;cursor:pointer;padding:0 2px;line-height:1">×</button>
       </div>
       <input id="fip-name" type="text" maxlength="20"
         style="width:100%;background:rgba(82,183,136,0.1);border:1px solid rgba(82,183,136,0.3);
@@ -870,6 +862,8 @@ export default class FishSystem {
     if (!f || !this._infoPanel) return;
     this._infoPanelFishId = fishId;
     this._syncInfoPanelData(f);
+    const plantPanel = document.getElementById('plant-info-panel');
+    if (plantPanel) plantPanel.style.display = 'none';
     this._infoPanel.style.display = 'block';
     // Small entrance animation
     this._infoPanel.style.opacity = '0';
@@ -925,7 +919,7 @@ export default class FishSystem {
     if (!this._infoPanel) return;
     this._infoPanel.style.opacity = '0';
     this._infoPanel.style.transform = 'translateY(-6px)';
-    setTimeout(() => { if (this._infoPanel) this._infoPanel.style.display = 'none'; }, 200);
+    setTimeout(() => { if (this._infoPanel && !this._infoPanelFishId) this._infoPanel.style.display = 'none'; }, 200);
     this._infoPanelFishId = null;
   }
 

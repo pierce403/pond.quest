@@ -1,171 +1,103 @@
-/**
- * UIScene — HUD overlay running as a parallel scene on top of PondScene.
- *
- * Displays:
- *   - Pond chemistry stats with color-coded status (green/amber/red)
- *   - Game time / day counter
- *   - Fish and plant counts
- *   - Subtle, non-intrusive design that doesn't obscure the pond
- *
- * Runs alongside PondScene via Phaser's scene.launch().
- */
+import type StorageSystem from '../systems/StorageSystem';
+import type EcosystemSystem from '../systems/EcosystemSystem';
 
+/** DOM HUD stays readable and anchored through zoom, rotation, and text enlargement. */
 export default class UIScene extends Phaser.Scene {
-  constructor() {
-    super({ key: 'UIScene' });
-  }
-
-  init(data) {
+  storage!: StorageSystem;
+  ecosystem!: EcosystemSystem;
+  hud!: HTMLElement;
+  timer = 0;
+  constructor() { super({ key: 'UIScene' }); }
+  init(data: { storage: StorageSystem; ecosystem: EcosystemSystem }) {
     this.storage = data.storage;
     this.ecosystem = data.ecosystem;
   }
-
   create() {
-    const { width, height } = this.cameras.main;
-
-    // ── Chemistry panel (top-right) ───────────────────────────────────────
-    this._panelX = width - 220;
-    this._panelY = 16;
-
-    // Panel background
-    this._panelBg = this.add.graphics();
-    this._drawPanel();
-
-    // Title
-    this.add.text(this._panelX + 16, this._panelY + 10, '🧪 Water Chemistry', {
-      fontSize: '13px',
-      fontFamily: 'Georgia, serif',
-      color: '#a8d8b9',
+    this.hud = document.createElement('div');
+    this.hud.id = 'pond-hud';
+    this.hud.innerHTML = `
+      <section class="pond-clock" aria-label="Pond time">
+        <h1>Pond Quest</h1>
+        <div id="pond-time"></div>
+        <div id="pond-counts" class="muted"></div>
+        <div class="time-controls" aria-label="Simulation controls">
+          <button id="pond-pause" aria-label="Pause simulation" aria-pressed="false">Pause</button>
+          <button data-speed="1" aria-pressed="true" title="One pond day in 2.4 minutes">1×</button>
+          <button data-speed="5" aria-pressed="false">5×</button>
+          <button data-speed="20" aria-pressed="false">20×</button>
+        </div>
+      </section>
+      <details class="water-panel" ${window.innerWidth > 600 ? 'open' : ''}>
+        <summary><span>Water balance</span><span id="water-status"></span></summary>
+        <div class="water-readings">
+          <div class="water-vitals"><span>Oxygen <strong id="water-oxygen"></strong></span><span>pH <strong id="water-ph"></strong></span><span id="water-temperature"></span></div>
+          <dl>
+            <div><dt title="NH₃-N: toxic un-ionized portion of total ammonia, calculated from pH and temperature">Free ammonia</dt><dd id="water-ammonia"></dd></div>
+            <div><dt title="NH₃-N + NH₄-N">Total ammonia</dt><dd id="water-tan"></dd></div>
+            <div><dt>Nitrite</dt><dd id="water-nitrite"></dd></div>
+            <div><dt>Nitrate</dt><dd id="water-nitrate"></dd></div>
+            <div><dt title="Buffering capacity, as CaCO₃">Alkalinity</dt><dd id="water-alkalinity"></dd></div>
+          </dl>
+          <p class="units-note">Nitrogen readings in mg N/L · alkalinity in mg/L as CaCO₃</p>
+          <div class="bacteria-label"><span>Biofilter establishing</span><span id="bacteria-percent"></span></div>
+          <meter id="bacteria-meter" min="0" max="1" aria-label="Biofilter maturity"></meter>
+          <p id="water-guidance"></p>
+        </div>
+      </details>`;
+    document.getElementById('game-container')!.appendChild(this.hud);
+    this.hud.querySelector('#pond-pause')!.addEventListener('click', () => {
+      this.ecosystem.paused = !this.ecosystem.paused;
+      this.storage.flush();
+      this.refresh();
     });
-
-    // Chemistry labels
-    const labels = ['pH', 'NH₃', 'NO₂⁻', 'NO₃⁻', 'DO'];
-    const labelNames = ['pH', 'Ammonia', 'Nitrite', 'Nitrate', 'Oxygen'];
-    this._chemTexts = {};
-
-    labels.forEach((label, i) => {
-      const y = this._panelY + 36 + i * 22;
-
-      // Label
-      this.add.text(this._panelX + 16, y, labelNames[i], {
-        fontSize: '11px',
-        fontFamily: 'Georgia, serif',
-        color: '#8aaa8e',
-      });
-
-      // Value (updated in update loop)
-      this._chemTexts[label] = this.add.text(this._panelX + 170, y, '--', {
-        fontSize: '11px',
-        fontFamily: 'monospace',
-        color: '#c8e8d0',
-      }).setOrigin(1, 0);
-
-      // Status dot
-      this._chemTexts[label + '_dot'] = this.add.circle(this._panelX + 182, y + 6, 4, 0x52b788);
+    this.hud.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach(button => {
+      button.addEventListener('click', () => { this.ecosystem.setSpeed(Number(button.dataset.speed)); this.refresh(); });
     });
-
-    // ── Info bar (bottom-left) ──────────────────────────────────────────
-    this._infoY = height - 40;
-    this._dayText = this.add.text(16, this._infoY, 'Day 1', {
-      fontSize: '12px',
-      fontFamily: 'Georgia, serif',
-      color: '#6b9b7e',
-    });
-    this._countText = this.add.text(16, this._infoY + 16, '', {
-      fontSize: '11px',
-      fontFamily: 'Georgia, serif',
-      color: '#5a8a6e',
-    });
-
-    // ── Bacteria colonization bar (under chemistry) ─────────────────────
-    const bactY = this._panelY + 36 + 5 * 22 + 8;
-    this.add.text(this._panelX + 16, bactY, 'Bacteria', {
-      fontSize: '10px',
-      fontFamily: 'Georgia, serif',
-      color: '#7a9a7e',
-    });
-    this._bactBarBg = this.add.graphics();
-    this._bactBarBg.fillStyle(0x1a2a1a, 0.5);
-    this._bactBarBg.fillRoundedRect(this._panelX + 80, bactY + 1, 100, 10, 5);
-    this._bactBarFill = this.add.graphics();
-
-    // ── Refresh timer ────────────────────────────────────────────────────
-    this._refreshTimer = 0;
-
-    // Handle resize
-    this.scale.on('resize', (gameSize) => {
-      this._panelX = gameSize.width - 220;
-      this._infoY = gameSize.height - 40;
-      this._drawPanel();
-    });
+    this.events.once('shutdown', () => this.hud.remove());
+    this.refresh();
   }
-
-  update(time, delta) {
-    // Throttle UI updates to ~4 fps for performance
-    this._refreshTimer += delta;
-    if (this._refreshTimer < 250) return;
-    this._refreshTimer = 0;
-
-    this._updateChemistry();
-    this._updateInfo();
+  update(_time: number, delta: number) {
+    this.timer += delta;
+    if (this.timer < 250) return;
+    this.timer = 0;
+    this.refresh();
   }
-
-  _drawPanel() {
-    this._panelBg.clear();
-    this._panelBg.fillStyle(0x0a1a0a, 0.65);
-    this._panelBg.fillRoundedRect(this._panelX, this._panelY, 200, 190, 10);
-    this._panelBg.lineStyle(1, 0x2a4a2a, 0.5);
-    this._panelBg.strokeRoundedRect(this._panelX, this._panelY, 200, 190, 10);
+  private set(id: string, text: string, status?: string) {
+    const el = this.hud.querySelector<HTMLElement>(`#${id}`)!;
+    if (el.textContent !== text) el.textContent = text;
+    if (status) el.dataset.status = status;
   }
-
-  _updateChemistry() {
-    if (!this.ecosystem) return;
-    const data = this.ecosystem.getAnnotatedChemistry();
-    const statusColors = {
-      ideal: 0x52b788,
-      warning: 0xe9c46a,
-      critical: 0xe76f51,
-    };
-
-    const formatMap = {
-      'pH': { val: data.pH.toFixed(1), status: data.statuses.pH },
-      'NH₃': { val: data.ammonia.toFixed(3) + ' ppm', status: data.statuses.ammonia },
-      'NO₂⁻': { val: data.nitrite.toFixed(3) + ' ppm', status: data.statuses.nitrite },
-      'NO₃⁻': { val: data.nitrate.toFixed(1) + ' ppm', status: data.statuses.nitrate },
-      'DO': { val: data.dissolvedOxygen.toFixed(1) + ' mg/L', status: data.statuses.dissolvedOxygen },
-    };
-
-    for (const [key, info] of Object.entries(formatMap)) {
-      if (this._chemTexts[key]) {
-        this._chemTexts[key].setText(info.val);
-        this._chemTexts[key].setColor(
-          info.status === 'ideal' ? '#a8d8b9' :
-          info.status === 'warning' ? '#e9c46a' : '#e76f51'
-        );
-      }
-      if (this._chemTexts[key + '_dot']) {
-        this._chemTexts[key + '_dot'].setFillStyle(statusColors[info.status] || 0x52b788);
-      }
-    }
-
-    // Bacteria bar
-    const bactLevel = data.bacteriaLevel || 0;
-    const bactY = this._panelY + 36 + 5 * 22 + 8;
-    this._bactBarFill.clear();
-    this._bactBarFill.fillStyle(0x74c69d, 0.8);
-    this._bactBarFill.fillRoundedRect(
-      this._panelX + 80, bactY + 1,
-      Math.max(0, 100 * bactLevel), 10, 5
-    );
-  }
-
-  _updateInfo() {
-    const gameTime = this.storage.getGameTime();
-    const day = Math.floor(gameTime.totalMinutes / gameTime.dayLength) + 1;
-    const fishCount = this.storage.getFish().length;
-    const plantCount = this.storage.getPlants().length;
-
-    this._dayText.setText(`Day ${day}`);
-    this._countText.setText(`🐟 ${fishCount}  🌿 ${plantCount}`);
+  refresh() {
+    const c = this.ecosystem.getAnnotatedChemistry();
+    const minutes = Math.floor(this.storage.getGameTime().totalMinutes);
+    const clock = (minutes + 480) % 1440;
+    const time = `${String(Math.floor(clock / 60)).padStart(2, '0')}:${String(clock % 60).padStart(2, '0')}`;
+    this.set('pond-time', `Day ${Math.floor(minutes / 1440) + 1} · ${time} · ${c.light > 0 ? 'Daylight' : 'Night'}`);
+    this.set('pond-counts', `${this.storage.getFish().length} fish · ${this.storage.getPlants().length} plants`);
+    this.set('water-oxygen', `${c.dissolvedOxygen.toFixed(1)} mg/L`, c.statuses.dissolvedOxygen);
+    this.set('water-ph', c.pH.toFixed(1), c.statuses.pH);
+    this.set('water-temperature', `${c.temperature.toFixed(1)} °C`);
+    this.set('water-ammonia', c.freeAmmonia.toFixed(3), c.statuses.ammonia);
+    this.set('water-tan', c.ammonia.toFixed(3));
+    this.set('water-nitrite', c.nitrite.toFixed(3), c.statuses.nitrite);
+    this.set('water-nitrate', c.nitrate.toFixed(2), c.statuses.nitrate);
+    this.set('water-alkalinity', c.alkalinity.toFixed(1), c.statuses.alkalinity);
+    const levels = Object.values(c.statuses);
+    const severity = levels.includes('critical') ? 'critical' : levels.includes('warning') ? 'warning' : 'ideal';
+    this.set('water-status', severity === 'critical' ? 'Needs care' : severity === 'warning' ? 'Watch' : 'Balanced', severity);
+    const bacteria = Math.min(c.bacteriaLevel, c.nitriteBacteriaLevel);
+    this.set('bacteria-percent', `${Math.round(bacteria * 100)}%`);
+    (this.hud.querySelector('#bacteria-meter') as HTMLMeterElement).value = bacteria;
+    this.set('water-guidance', c.dissolvedOxygen < 5 ? 'Low oxygen. Reduce stocking and thin dense surface cover.' :
+      c.alkalinity < 20 ? 'Buffer depleted. Nitrification slows and pH can fall.' :
+      c.freeAmmonia > 0.02 || c.nitrite > 0.25 ? 'Give the biofilter time to establish; avoid adding more fish.' :
+      c.nitrate > 20 ? 'Plants take up nitrogen. Removing plant growth exports it from the pond.' :
+      c.light < 0.01 ? 'Night: plants and fish use oxygen. The lowest level is usually near dawn.' :
+      `Surface shade ${Math.round(c.coverage * 100)}% · oxygen ${Math.round(c.dissolvedOxygen / c.saturation * 100)}% of saturation.`);
+    const pause = this.hud.querySelector<HTMLButtonElement>('#pond-pause')!;
+    pause.textContent = this.ecosystem.paused ? 'Resume' : 'Pause';
+    pause.setAttribute('aria-pressed', String(this.ecosystem.paused));
+    pause.setAttribute('aria-label', this.ecosystem.paused ? 'Resume simulation' : 'Pause simulation');
+    this.hud.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === this.ecosystem.speed)));
   }
 }

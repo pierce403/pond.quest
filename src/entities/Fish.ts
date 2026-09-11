@@ -6,12 +6,28 @@
  */
 
 export default class Fish {
-  constructor(data = {}) {
+  declare id: string;
+  declare species: string;
+  declare x: number;
+  declare y: number;
+  declare age: number;
+  declare health: number;
+  declare stress: number;
+  declare vx: number;
+  declare vy: number;
+  declare wanderAngle: number;
+  declare fleeTimer: number;
+  declare fleeVx: number;
+  declare fleeVy: number;
+  declare jumping: boolean;
+  declare jumpTimer: number;
+
+  constructor(data: Partial<Fish> = {}) {
     this.id = data.id || '';
     this.species = data.species || 'koi';
-    this.x = data.x || 2.0;   // iso-space position (float 0–4)
-    this.y = data.y || 2.0;
-    this.age = data.age || 0;  // in-game days
+    this.x = data.x ?? 2.0;   // iso-space position (float 0–4)
+    this.y = data.y ?? 2.0;
+    this.age = data.age || 0;  // in-game minutes
     this.health = data.health ?? 1.0;
     this.stress = data.stress || 0.0;
 

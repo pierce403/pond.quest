@@ -4,6 +4,12 @@
 
 ---
 
+## Current implementation notes (2026-09-11)
+
+Plant sprites now show species and growth stages; surface plants occlude fish while hornwort stays submerged. Cattails use edge tiles, and shade/crowding affect plant effectiveness. A shared accelerated clock drives biological growth and chemistry, with pause, 1×, 5× and 20× controls. The responsive water panel distinguishes free ammonia from TAN and includes temperature, alkalinity and two-stage biofilter maturity. Water/placement coordinates and resize positioning are aligned. Static meadow rendering is cached.
+
+See [the simulation specification](docs/SIMULATION.md) for implemented processes, units, sources and explicit omissions. The older feature checklist below describes the broader roadmap; evaporation, algae, fish death, seasons and economic progression remain unimplemented.
+
 ## Features
 
 ### Isometric Pond Grid

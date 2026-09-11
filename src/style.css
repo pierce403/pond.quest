@@ -1,0 +1,72 @@
+:root { color-scheme: dark; --pond-ink: #e3eee3; --pond-muted: #b2cbbf; --pond-glass: rgba(13, 35, 31, .91); }
+#pond-hud { position: absolute; inset: 0; pointer-events: none; color: var(--pond-ink); font: 14px/1.5 system-ui, sans-serif; }
+.pond-clock, .water-panel { position: absolute; top: max(18px, env(safe-area-inset-top)); pointer-events: auto; background: var(--pond-glass); border: 1px solid #c4dfbd30; box-shadow: 0 10px 28px #05292228; backdrop-filter: blur(12px); border-radius: 18px; }
+.pond-clock { left: max(18px, env(safe-area-inset-left)); padding: 16px 18px; }
+.pond-clock h1 { font: 24px/1.2 Georgia, serif; margin-bottom: 8px; letter-spacing: -.5px; color: #eef3d5; }
+.muted { color: var(--pond-muted); }
+.time-controls { display: flex; gap: 4px; margin-top: 12px; }
+.time-controls button { min-width: 36px; min-height: 38px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--pond-muted); font: inherit; cursor: pointer; }
+.time-controls button:first-child { padding: 0 9px; }
+.time-controls button[aria-pressed=true] { background: #d5ecbd; color: #203e34; }
+button:focus-visible, summary:focus-visible { outline: 3px solid #f1d186; outline-offset: 3px; }
+.water-panel { right: max(18px, env(safe-area-inset-right)); width: 284px; max-height: calc(100dvh - 190px); overflow: auto; }
+.water-panel summary { padding: 14px 16px; cursor: pointer; list-style: none; display: flex; gap: 10px; justify-content: space-between; align-items: center; font-weight: 600; }
+.water-panel summary::-webkit-details-marker { display: none; }
+.water-panel summary::after { content: '+'; }
+.water-panel[open] summary::after { content: '−'; }
+#water-status { font-size: 12px; margin-left: auto; }
+.water-readings { padding: 0 16px 16px; }
+.water-vitals { display: grid; gap: 6px; padding: 10px 0 12px; border-top: 1px solid #c4dfbd24; border-bottom: 1px solid #c4dfbd24; }
+.water-vitals span { display: flex; justify-content: space-between; }
+.water-vitals strong { font-weight: 500; font-variant-numeric: tabular-nums; }
+.water-panel dl { margin: 12px 0 8px; }
+.water-panel dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.water-panel dt { color: var(--pond-muted); }
+.water-panel dd { margin: 0; font-variant-numeric: tabular-nums; }
+.units-note, #water-guidance { font-size: 12px; color: var(--pond-muted); line-height: 1.55; }
+.bacteria-label { display: flex; justify-content: space-between; margin-top: 14px; font-size: 12px; }
+#bacteria-meter { display: block; width: 100%; height: 12px; accent-color: #accd99; margin: 4px 0 10px; }
+[data-status=ideal] { color: #bbe2b3; } [data-status=warning] { color: #f6d786; } [data-status=critical] { color: #ffab95; }
+#inventory-tray { font-family: system-ui, sans-serif !important; background: var(--pond-glass) !important; border-color: #c4dfbd30 !important; max-width: calc(100vw - 24px) !important; padding: 10px !important; gap: 6px !important; }
+#inventory-tray [data-tray-card] { width: 72px !important; height: 74px !important; border-radius: 12px !important; }
+#inventory-tray [data-tray-card] span { font: 12px/1.2 system-ui, sans-serif !important; color: #e0eee1 !important; }
+.tray-art { width: 46px !important; height: 38px !important; background: transparent !important; box-shadow: none !important; object-fit: contain; }
+#inventory-tray [data-tray-label], #inventory-tray [data-tray-divider] { display: none !important; }
+#placement-hint { font-size: 12px !important; color: #dceadc !important; }
+.entity-panel, #fish-info-panel, #plant-info-panel { top: max(18px, env(safe-area-inset-top)) !important; left: auto !important; right: max(18px, env(safe-area-inset-right)) !important; width: 284px !important; max-height: calc(100dvh - 180px); overflow-y: auto; font-family: system-ui, sans-serif !important; background: #102b25f5 !important; }
+.entity-panel div, #fish-info-panel div, #plant-info-panel div { font-size: 14px !important; }
+.entity-panel button, #fish-info-panel button { min-height: 40px; font-size: 14px !important; }
+@media (max-width: 760px) {
+  .pond-clock { padding: 10px 12px; left: 10px; top: max(10px, env(safe-area-inset-top)); }
+  .pond-clock h1 { font-size: 20px; margin-bottom: 4px; }
+  #pond-time, #pond-counts { font-size: 12px; }
+  .time-controls { margin-top: 6px; }
+  .water-panel { right: 10px; top: max(10px, env(safe-area-inset-top)); width: min(280px, calc(100vw - 20px)); z-index: 1; }
+  .water-panel:not([open]) { width: auto; max-width: calc(100vw - 185px); }
+  .water-panel summary { padding: 11px 12px; font-size: 12px; gap: 7px; }
+  .water-panel:not([open]) summary { display: grid; grid-template-columns: 1fr auto; }
+  .water-panel:not([open]) #water-status { display: block; grid-row: 2; margin-left: 0; }
+  .water-panel:not([open]) summary::after { grid-column: 2; grid-row: 1; }
+  #inventory-tray { width: calc(100vw - 16px); bottom: max(8px, env(safe-area-inset-bottom)) !important; flex-wrap: wrap !important; gap: 4px !important; padding: 7px !important; }
+  #inventory-tray [data-tray-card] { width: calc((100vw - 62px) / 7) !important; max-width: 70px; min-width: 36px; height: 65px !important; }
+  .tray-art { width: 32px !important; height: 32px !important; }
+  #inventory-tray [data-tray-card] span { font-size: 12px !important; overflow-wrap: anywhere; }
+  #placement-hint { width: 100%; min-width: 100% !important; padding: 3px 4px !important; font-size: 12px !important; }
+  #plant-info-panel, #fish-info-panel { top: 10px !important; right: 10px !important; width: min(284px, calc(100vw - 20px)) !important; }
+}
+@media (max-height: 480px) {
+  .pond-clock h1, #pond-counts { display: none; }
+  .pond-clock { padding: 8px 12px; }
+  #inventory-tray [data-tray-card] { height: 48px !important; }
+  .tray-art { height: 22px !important; }
+  .entity-panel, .water-panel { max-height: calc(100dvh - 125px) !important; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+@media (max-width: 400px) {
+  .pond-clock { padding: 10px; }
+  .time-controls { font-size: 12px; gap: 3px; }
+  .time-controls button { min-width: 30px; min-height: 38px; }
+  .time-controls button:first-child { padding: 0 6px; }
+  .water-panel:not([open]) { max-width: calc(100vw - 190px); }
+}

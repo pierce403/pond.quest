@@ -40,6 +40,9 @@
 
 ## ✅ Completed
 
+- [x] **[SIM-2026-09]** Shared plant/chemistry clock, nutrient-limited growth, free ammonia speciation, oxygen/alkalinity-limited nitrification, carbonate pH, temperature/daylight, migration tests and simulation CI — 2026-09-11
+- [x] **[VIS-2026-09]** Illustrated plant stages, continuous water, day/night tint, cached meadow, responsive HUD, accessible tray buttons, coordinate/resize and fish-jump fixes — 2026-09-11
+
 *(Checked tasks move here with completion date)*
 
 - [x] **[SETUP-1]** Initialize git repo with `main` as default branch — 2026-03-18

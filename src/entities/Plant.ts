@@ -4,7 +4,16 @@
  */
 
 export default class Plant {
-  constructor(data = {}) {
+  declare id: string;
+  declare species: string;
+  declare tileX: number;
+  declare tileY: number;
+  declare subX: number;
+  declare subY: number;
+  declare growthStage: number;
+  declare growthProgress: number;
+
+  constructor(data: Partial<Plant> = {}) {
     this.id = data.id || '';
     this.species = data.species || 'lotus';
     this.tileX = data.tileX || 0;    // macro tile position (0–3)

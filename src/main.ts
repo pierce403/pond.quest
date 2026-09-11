@@ -1,3 +1,4 @@
+import './style.css';
 import Phaser from 'phaser';
 import { sdk } from '@farcaster/miniapp-sdk';
 import BootScene from './scenes/BootScene';

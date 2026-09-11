@@ -226,7 +226,7 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Fish cruising speed is now intentionally decoupled from poke burst speed. Tune normal motion through `FishSystem._getCruiseMaxSpeed()`; leave `_getPokeBurstSpeed()` higher so the pond stays calm at rest but fish still react sharply when poked.
 - Social cards are generated locally by `scripts/generate_social_preview.py`; the shipped tags point at `public/og-image.png` and `public/embed-image.png`, so regenerate those files instead of hand-editing the meta tags alone.
 - Branding strings live in `index.html` (`<title>`, OG/Twitter tags, and the `fc:miniapp` JSON) plus the boot/loading text in `src/scenes/BootScene.ts`; `rg -ni "fish quest|fishquest"` is a quick sweep for stale naming.
-- `npm run build` succeeds even with TypeScript errors (Vite/esbuild strips types). Run `npx tsc --noEmit` to check for TS issues, but don't block deploys on pre-existing errors in entity files.
+- `npm run build` strips types; run `npm run typecheck` and `npm test` as separate gates. The complete source tree now type-checks, and both gates run before GitHub Pages deployment.
 
 ---
 
@@ -249,3 +249,18 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Session 2026-03-19: Replaced synthesized placement/poke one-shots with trimmed public-domain water SFX from Wikimedia Commons / PDSounds, added `npm run verify:audio-flee`, and changed fish pokes so they dart away from the actual poke before easing back down to cruising speed.
 - Session 2026-03-19: Slowed default fish cruising to roughly half speed by adding a dedicated `DEFAULT_SWIM_SPEED_SCALE` in `FishSystem`, while keeping poke bursts fast through separate cruise vs flee speed helpers; `npm run verify:audio-flee -- --url http://127.0.0.1:4175/` still passed with a `0.253` baseline and `1.138` burst speed.
 - Session 2026-03-20: Replaced stale `Fish Quest` branding with `Pond Quest` in `index.html` metadata and `src/scenes/BootScene.ts`; `rg -ni "fish quest|fishquest"` came back clean afterward and `npm run build` still passed.
+
+
+## September 2026 simulation and rendering update
+
+- Run `npm test` for deterministic Node tests (bundled with the esbuild already installed by Vite), then `npm run typecheck` and `npm run build`. The full source tree now passes strict TypeScript. No browser is required for these gates.
+- `docs/SIMULATION.md` documents units, references and modeling limits. JSON files are now the single configuration source; the TS files re-export them. `species.json` previously contained invalid hexadecimal JSON, so do not restore that format.
+- Chemistry nitrogen pools use **mg N/L**. `ammonia` is TAN, not free NH₃. HUD toxicity uses the pH/temperature-dependent free fraction. Two nitrifier groups pay oxygen and alkalinity costs. Carbonate balance determines pH.
+- `EcosystemSystem` exclusively owns plant growth, physiology and game age. Never add a separate real-time growth accumulator to `PlantSystem`. Default 1× is ten game minutes per real second; pause/5×/20× use the same fixed minute steps. Hidden time is not simulated.
+- Storage schema 2 keeps `pondquest_v1`. Merge nested chemistry fields and derive DIC from old pH on migration. Preserve user plant growth and intentionally empty ponds. Routine writes are batched; save on placement/removal and page lifecycle events.
+- The rendered water and placement share the **[0,width] × [0,height]** coordinate domain. Sub-tile rendering uses `(sub + 0.5) / 4`. The old renderer was shifted half a tile, which put valid plants beyond the rim.
+- Resize must update the shared `pondBounds` object and reposition plants. Fish and plants receive the same object. Surface plants render above fish; hornwort is submerged below them.
+- `plants-atlas.png` has real alpha and nonuniform frame spacing. Use `src/data/plantArt.ts` rectangles, not an assumed uniform spritesheet. Its source/brief is in `public/assets/images/PLANT_ART.md`.
+- Static meadow strokes are baked to a render texture. Only 36 tufts animate at 10 FPS. Plant frames/tints refresh only when appearance changes, and the DOM HUD refreshes at 4 FPS.
+- Coincident fish collision fallback must keep an epsilon distance; replacing it with 1 reverses the overlap correction. Normal positioning must not overwrite a jumping fish's arc.
+- 2026-09-11 verification: deterministic chemistry/accounting tests, 45-day simulation, placement geometry and fish motion regression tests; strict typecheck and production build passed. Browser/end-to-end checks were not run in this session.

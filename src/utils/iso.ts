@@ -22,7 +22,7 @@ export const HALF_H = TILE_H / 2;
  * @param {number} originY - Screen Y of the grid origin
  * @returns {{ x: number, y: number }}
  */
-export function isoToScreen(isoX, isoY, originX, originY) {
+export function isoToScreen(isoX: number, isoY: number, originX: number, originY: number) {
   return {
     x: originX + (isoX - isoY) * HALF_W,
     y: originY + (isoX + isoY) * HALF_H,
@@ -37,7 +37,7 @@ export function isoToScreen(isoX, isoY, originX, originY) {
  * @param {number} originY - Screen Y of the grid origin
  * @returns {{ isoX: number, isoY: number }} Floating-point grid coords (floor to get tile)
  */
-export function screenToIso(sx, sy, originX, originY) {
+export function screenToIso(sx: number, sy: number, originX: number, originY: number) {
   const relX = sx - originX;
   const relY = sy - originY;
   return {
@@ -53,7 +53,7 @@ export function screenToIso(sx, sy, originX, originY) {
  * @param {number} isoY
  * @returns {number}
  */
-export function isoDepth(isoX, isoY) {
+export function isoDepth(isoX: number, isoY: number) {
   return isoX + isoY;
 }
 
@@ -61,13 +61,7 @@ export function isoDepth(isoX, isoY) {
  * Convert sub-tile coordinates (0–3 within a macro tile) to screen position.
  * Sub-tiles are 1/4 the size of a macro tile.
  */
-export function subTileToScreen(macroIsoX, macroIsoY, subX, subY, originX, originY) {
-  const macroScreen = isoToScreen(macroIsoX, macroIsoY, originX, originY);
-  // Sub-tile is 1/4 scale isometric grid within the macro tile
-  const subHalfW = HALF_W / 4;
-  const subHalfH = HALF_H / 4;
-  return {
-    x: macroScreen.x + (subX - subY) * subHalfW,
-    y: macroScreen.y + (subX + subY) * subHalfH,
-  };
+export function subTileToScreen(macroIsoX: number, macroIsoY: number, subX: number, subY: number, originX: number, originY: number) {
+  // A cell is [n, n+1); use its center for both rendering and placement.
+  return isoToScreen(macroIsoX + (subX + 0.5) / 4, macroIsoY + (subY + 0.5) / 4, originX, originY);
 }

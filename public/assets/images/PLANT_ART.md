@@ -1,0 +1,5 @@
+# Plant atlas
+
+`plants-atlas.png` was created with the built-in image generator for this project on 2026-09-11. The original RGBA image is retained, with alpha transparency. It contains 16 plant sprites in four stages, ordered by row, and four species ordered by column: lotus, cattail, water lily, hornwort. Runtime crop rectangles in `src/data/plantArt.ts` account for the generated image's nonuniform spacing; the source is not repainted or background-matted.
+
+Generation brief: one transparent 4×4 atlas, soft painterly isometric pond plants under warm sunlight, natural moss/teal greens, seedling → juvenile → mature/budding → flowering/seeding/dense. Lotus has raised circular leaves and pale pink blooms; cattail has narrow reeds and brown heads; water lily has flat notched pads and pink blooms; hornwort has feathery submerged stems and no blooms. No text, grid lines, pots, soil, water puddles or background scenery. Requested 1024×1024; actual image 1254×1254. Faint green edge artifacts remain in the generated source.

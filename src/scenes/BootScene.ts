@@ -1,3 +1,4 @@
+import { PLANT_ART_FRAMES } from '../data/plantArt';
 /**
  * BootScene — loads assets and shows a minimal loading bar.
  * Transitions to PondScene once everything is ready.
@@ -7,6 +8,7 @@
  */
 
 export default class BootScene extends Phaser.Scene {
+  private audioUrls: string[] = [];
   constructor() {
     super({ key: 'BootScene' });
   }
@@ -38,7 +40,7 @@ export default class BootScene extends Phaser.Scene {
 
     // Progress fill
     const fill = this.add.graphics();
-    this.load.on('progress', (pct) => {
+    this.load.on('progress', (pct: number) => {
       fill.clear();
       fill.fillStyle(0x52b788, 1);
       fill.fillRoundedRect(barX + 2, barY + 2, (barW - 4) * pct, barH - 4, 6);
@@ -57,6 +59,8 @@ export default class BootScene extends Phaser.Scene {
       this.load.image(`fish_${sp}`, `assets/images/fish_${sp}_e.png`);
     }
 
+    this.load.image('plants', 'assets/images/plants-atlas.png');
+
     // ── Audio assets ──────────────────────────────────────────────────────
     // Keep ambient layers procedural for now, but use real one-shot SFX.
     this.load.audio('sfx_plop', 'audio/sfx_plop.ogg');
@@ -72,15 +76,16 @@ export default class BootScene extends Phaser.Scene {
    */
   _generateProceduralAudio() {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       this._createWaterLoop(ctx, 'ambient_water', 6.0);
       this._createChiptuneLoop(ctx, 'bgm_chill', 8.0);
+      void ctx.close();
     } catch (e) {
       console.warn('[BootScene] Web Audio not available:', e);
     }
   }
 
-  _createClip(ctx, key, durationSec, writer) {
+  _createClip(ctx: AudioContext, key: string, durationSec: number, writer: (data: Float32Array, sampleRate: number, length: number) => void) {
     const sampleRate = ctx.sampleRate;
     const length = Math.floor(sampleRate * durationSec);
     const buffer = ctx.createBuffer(1, length, sampleRate);
@@ -90,10 +95,11 @@ export default class BootScene extends Phaser.Scene {
     const wav = this._audioBufferToWav(buffer);
     const blob = new Blob([wav], { type: 'audio/wav' });
     const url = URL.createObjectURL(blob);
+    this.audioUrls.push(url);
     this.load.audio(key, url);
   }
 
-  _createWaterLoop(ctx, key, durationSec) {
+  _createWaterLoop(ctx: AudioContext, key: string, durationSec: number) {
     this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
       let filtered = 0;
       for (let i = 0; i < length; i++) {
@@ -107,7 +113,7 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
-  _createSplashBuffer(ctx, key, durationSec) {
+  _createSplashBuffer(ctx: AudioContext, key: string, durationSec: number) {
     this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
       let phase = 0;
       let filtered = 0;
@@ -124,7 +130,7 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
-  _createPlopBuffer(ctx, key, durationSec) {
+  _createPlopBuffer(ctx: AudioContext, key: string, durationSec: number) {
     this._createClip(ctx, key, durationSec, (data, sampleRate, length) => {
       let phase = 0;
       for (let i = 0; i < length; i++) {
@@ -140,7 +146,7 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
-  _createChiptuneLoop(ctx, key, durationSec) {
+  _createChiptuneLoop(ctx: AudioContext, key: string, durationSec: number) {
     const melody = [64, 67, 71, 72, 71, 67, 64, 62, 60, 62, 64, 67, 69, 67, 64, 62];
     const bass = [36, 36, 41, 41, 43, 43, 38, 38];
     const arps = [76, 79, 83, 79, 74, 77, 81, 77];
@@ -180,14 +186,14 @@ export default class BootScene extends Phaser.Scene {
     });
   }
 
-  _midiToFreq(note) {
+  _midiToFreq(note: number) {
     return 440 * Math.pow(2, (note - 69) / 12);
   }
 
   /**
    * Encode an AudioBuffer as a WAV file (PCM 16-bit).
    */
-  _audioBufferToWav(buffer) {
+  _audioBufferToWav(buffer: AudioBuffer) {
     const numChannels = buffer.numberOfChannels;
     const sampleRate = buffer.sampleRate;
     const format = 1; // PCM
@@ -228,13 +234,17 @@ export default class BootScene extends Phaser.Scene {
     return arrayBuffer;
   }
 
-  _writeString(view, offset, str) {
+  _writeString(view: DataView, offset: number, str: string) {
     for (let i = 0; i < str.length; i++) {
       view.setUint8(offset + i, str.charCodeAt(i));
     }
   }
 
   create() {
+    this.audioUrls.forEach(url => URL.revokeObjectURL(url));
+    this.audioUrls = [];
+    const plants = this.textures.get('plants');
+    PLANT_ART_FRAMES.forEach(([x, y, w, h], i) => plants.add(String(i), 0, x, y, w, h));
     // Small delay so the loading bar is visible even if loading is instant
     this.time.delayedCall(400, () => {
       this.scene.start('PondScene');

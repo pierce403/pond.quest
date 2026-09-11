@@ -6,7 +6,13 @@
  */
 
 export default class AudioManager {
-  constructor(scene) {
+  declare scene: Phaser.Scene;
+  declare ready: boolean;
+  declare ambientVolume: number;
+  declare sfxVolume: number;
+  declare _sounds: Record<string, Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound>;
+  declare _ctx: AudioContext | null;
+  constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.ready = false;
     this.ambientVolume = 0.4;
@@ -39,14 +45,14 @@ export default class AudioManager {
             volume,
           });
           snd.play();
-          this._sounds[key] = snd;
+          this._sounds[key] = snd as Phaser.Sound.WebAudioSound | Phaser.Sound.HTML5AudioSound;
         }, delay);
       }
     });
   }
 
   /** Play a one-shot SFX */
-  playSfx(key, opts = {}) {
+  playSfx(key: string, opts: Phaser.Types.Sound.SoundConfig = {}) {
     if (!this.ready) return;
     if (!this.scene.cache.audio.has(key)) return;
     this.scene.sound.play(key, { volume: this.sfxVolume, ...opts });
@@ -64,7 +70,7 @@ export default class AudioManager {
     });
   }
 
-  setAmbientVolume(v) {
+  setAmbientVolume(v: number) {
     this.ambientVolume = v;
     Object.values(this._sounds).forEach(snd => {
       if (snd.isPlaying) snd.setVolume(v);

@@ -1,12 +1,12 @@
 /**
- * PlantSystem — manages plant entities: placement, growth, rendering, and info.
+ * PlantSystem — manages plant entities: placement, rendering, and info.
  *
- * Plants now track health and sickness alongside growth. Dirty water lowers
- * their effectiveness, which the EcosystemSystem uses to scale oxygen
- * production and nitrate absorption.
+ * The EcosystemSystem owns all growth and physiology on its game-minute clock.
+ * This system displays the resulting stage, health and realized process rates.
  */
 
 import speciesDefs from '../data/species';
+import { plantFrame } from '../data/plantArt';
 import { generateId } from './StorageSystem';
 import { subTileToScreen } from '../utils/iso';
 
@@ -33,6 +33,7 @@ export default class PlantSystem {
   declare _growthAccum: number;
   declare _infoPanel: HTMLElement | null;
   declare _infoPanelPlantId: string | null;
+  private _reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   constructor(scene: Phaser.Scene, storage: any, pondBounds: any) {
     this.scene = scene;
@@ -45,68 +46,24 @@ export default class PlantSystem {
     this._infoPanel = null;
     this._infoPanelPlantId = null;
     this._buildInfoPanel();
+    this.scene.events.once('shutdown', () => this._infoPanel?.remove());
   }
 
-  _getEffectiveStats(plantData: any, spec: any) {
-    const maturity = Math.max(0.2, plantData.growthProgress ?? 0);
-    const health = plantData.health ?? 1;
-    const sickness = plantData.sickness ?? 0;
-    const effectiveness = plantData.effectiveness ?? Math.max(
-      0.08,
-      Math.min(1, maturity * (0.35 + health * 0.65) * (1 - sickness * 0.7))
-    );
-
+  _getEffectiveStats(plantData: any, _spec: any) {
     return {
-      effectiveness,
-      oxygenRate: plantData.oxygenRate ?? spec.doProduction * effectiveness,
-      nitrateRate: plantData.nitrateRate ?? spec.nitrateAbsorption * effectiveness,
+      effectiveness: plantData.effectiveness ?? 0,
+      oxygenRate: plantData.oxygenRate ?? 0,
+      nitrateRate: plantData.nitrateRate ?? 0,
     };
   }
 
   _ensurePlantState(plantData: any, spec: any) {
-    const updates: any = {};
-    if (!Number.isFinite(plantData.growthStage)) {
-      plantData.growthStage = 0;
-      updates.growthStage = 0;
-    }
-    if (!Number.isFinite(plantData.growthProgress)) {
-      plantData.growthProgress = 0;
-      updates.growthProgress = 0;
-    }
-    if (!Number.isFinite(plantData.age)) {
-      plantData.age = 0;
-      updates.age = 0;
-    }
-    if (!Number.isFinite(plantData.health)) {
-      plantData.health = 1;
-      updates.health = 1;
-    }
-    if (!Number.isFinite(plantData.sickness)) {
-      plantData.sickness = 0;
-      updates.sickness = 0;
-    }
+    Object.assign(plantData, this.storage.normalizePlant(plantData));
+  }
 
-    const stats = this._getEffectiveStats(plantData, spec);
-    if (!Number.isFinite(plantData.effectiveness)) {
-      plantData.effectiveness = stats.effectiveness;
-      updates.effectiveness = stats.effectiveness;
-    }
-    if (!Number.isFinite(plantData.oxygenRate)) {
-      plantData.oxygenRate = stats.oxygenRate;
-      updates.oxygenRate = stats.oxygenRate;
-    }
-    if (!Number.isFinite(plantData.nitrateRate)) {
-      plantData.nitrateRate = stats.nitrateRate;
-      updates.nitrateRate = stats.nitrateRate;
-    }
-    if (typeof plantData.isSick !== 'boolean') {
-      plantData.isSick = (plantData.sickness ?? 0) >= 0.35;
-      updates.isSick = plantData.isSick;
-    }
-
-    if (Object.keys(updates).length > 0) {
-      this.storage.updatePlant(plantData.id, updates);
-    }
+  isSuitableHabitat(species: string, tileX: number, tileY: number) {
+    return this.speciesDefs[species]?.habitat !== 'marginal' || tileX === 0 || tileY === 0
+      || tileX === this.bounds.gridW - 1 || tileY === this.bounds.gridH - 1;
   }
 
   isPlantSlotOccupied(tileX: number, tileY: number, subX: number, subY: number, ignoreId: string | null = null) {
@@ -116,8 +73,8 @@ export default class PlantSystem {
     });
   }
 
-  findPlacementSlot(tileX: number, tileY: number, preferredSubX: number, preferredSubY: number, ignoreId: string | null = null) {
-    if (tileX < 0 || tileY < 0 || tileX >= this.bounds.gridW || tileY >= this.bounds.gridH) {
+  findPlacementSlot(tileX: number, tileY: number, preferredSubX: number, preferredSubY: number, ignoreId: string | null = null, species = '') {
+    if (![tileX, tileY, preferredSubX, preferredSubY].every(Number.isInteger) || !this.isSuitableHabitat(species, tileX, tileY) || tileX < 0 || tileY < 0 || tileX >= this.bounds.gridW || tileY >= this.bounds.gridH) {
       return null;
     }
 
@@ -137,16 +94,19 @@ export default class PlantSystem {
   }
 
   canPlacePlantAt(tileX: number, tileY: number, subX: number, subY: number, ignoreId: string | null = null) {
-    return !this.isPlantSlotOccupied(tileX, tileY, subX, subY, ignoreId);
+    return [tileX, tileY, subX, subY].every(Number.isInteger)
+      && tileX >= 0 && tileY >= 0 && tileX < this.bounds.gridW && tileY < this.bounds.gridH
+      && subX >= 0 && subY >= 0 && subX < 4 && subY < 4
+      && !this.isPlantSlotOccupied(tileX, tileY, subX, subY, ignoreId);
   }
 
   placePlant(species: string, tileX: number, tileY: number, subX: number, subY: number) {
     const spec = this.speciesDefs[species];
-    if (!spec) return null;
+    if (!spec || !this.isSuitableHabitat(species, tileX, tileY)) return null;
     if (!this.canPlacePlantAt(tileX, tileY, subX, subY)) return null;
 
     const id = generateId();
-    const plantData = {
+    const plantData = this.storage.normalizePlant({
       id,
       species,
       tileX,
@@ -154,18 +114,18 @@ export default class PlantSystem {
       subX,
       subY,
       growthStage: 0,
-      growthProgress: 0,
+      growthProgress: 0.08,
       age: 0,
       health: 1,
       sickness: 0,
       effectiveness: 0.08,
-      oxygenRate: spec.doProduction * 0.08,
-      nitrateRate: spec.nitrateAbsorption * 0.08,
+      oxygenRate: 0,
+      nitrateRate: 0,
       isSick: false,
-    };
+    });
 
     this.storage.addPlant(plantData);
-    this._createPlantSprite(plantData, spec);
+    this._createPlantSprite(this.storage.getPlants().find((p: any) => p.id === id), spec);
     return id;
   }
 
@@ -176,166 +136,36 @@ export default class PlantSystem {
     shadow.fillStyle(0x000000, 0.14);
     shadow.fillEllipse(0, 4, 20, 8);
 
-    const gfx = this.scene.add.graphics();
-    this._drawPlant(gfx, spec, plantData);
-
+    const art = this.scene.add.image(0, 0, 'plants', plantFrame(plantData.species, plantData.growthStage)).setOrigin(0.5, 0.97);
     const glowRing = this.scene.add.graphics();
-    glowRing.lineStyle(2, 0xb7e4c7, 0);
-    glowRing.strokeCircle(0, -8, 18);
-
-    container.add([shadow, glowRing, gfx]);
-    container.setInteractive(
-      new Phaser.Geom.Circle(0, -6, 18),
-      Phaser.Geom.Circle.Contains
-    );
-
-    container.on('pointerover', () => {
-      this.scene.tweens.add({ targets: glowRing, alpha: 0.5, duration: 180 });
-    });
-    container.on('pointerout', () => {
-      this.scene.tweens.add({ targets: glowRing, alpha: 0, duration: 220 });
-    });
-    container.on('pointerdown', () => {
-      this._openInfoPanel(plantData.id);
-    });
-
-    this._plantObjects.set(plantData.id, { container, shadow, glowRing, gfx, spec });
+    glowRing.lineStyle(1.5, 0xb7e4c7, 0.9);
+    glowRing.strokeEllipse(0, 1, 32, 12);
+    glowRing.setAlpha(0);
+    container.add([shadow, glowRing, art]);
+    container.setInteractive(new Phaser.Geom.Rectangle(-18, -40, 36, 48), Phaser.Geom.Rectangle.Contains);
+    container.on('pointerover', () => glowRing.setAlpha(0.7));
+    container.on('pointerout', () => glowRing.setAlpha(0));
+    container.on('pointerdown', () => this._openInfoPanel(plantData.id));
+    this._plantObjects.set(plantData.id, { container, shadow, glowRing, art, spec,
+      phase: Math.random() * Math.PI * 2, lastAppearance: '' });
+    this._refreshPlantArt(plantData);
     this._positionPlantContainer(plantData);
   }
 
-  _drawPlant(gfx: Phaser.GameObjects.Graphics, spec: any, plantData: any) {
-    gfx.clear();
-
-    const stage = plantData.growthStage ?? 0;
-    const progress = plantData.growthProgress ?? 0;
-    const scale = 0.45 + progress * 0.85;
-    const health = plantData.health ?? 1;
-    const sickness = plantData.sickness ?? 0;
-    const vitality = Math.max(0.25, health * (1 - sickness * 0.6));
-
-    const baseLeafColor = spec.padColor ?? spec.color;
-    const leafColor = mixColor(baseLeafColor, 0x7a5c3a, sickness * 0.55);
-    const stemColor = mixColor(spec.stemColor ?? spec.color, 0x6a5641, sickness * 0.45);
-    const bloomColor = mixColor(spec.color, 0xd8ccb2, (1 - vitality) * 0.45);
-    const accentColor = mixColor(spec.secondaryColor ?? spec.color, 0x3f5133, sickness * 0.3);
-
-    gfx.fillStyle(0x0e1a10, 0.12 + (1 - vitality) * 0.08);
-    gfx.fillEllipse(0, 2, 18 * scale, 8 * scale);
-
-    if (spec.padColor) {
-      const padCount = stage >= 2 ? 2 : 1;
-      gfx.lineStyle(1.4, stemColor, 0.85);
-      gfx.beginPath();
-      gfx.moveTo(0, 2);
-      gfx.lineTo(0, -16 * scale);
-      gfx.strokePath();
-
-      for (let i = 0; i < padCount; i += 1) {
-        const ox = i === 0 ? -5 * scale : 7 * scale;
-        const oy = i === 0 ? -10 * scale : -15 * scale;
-        const padW = (15 + i * 3) * scale;
-        const padH = (8 + i * 1.5) * scale;
-        gfx.fillStyle(mixColor(0x102814, leafColor, 0.6), 0.28);
-        gfx.fillEllipse(ox + 1.5 * scale, oy + 2 * scale, padW, padH);
-        gfx.fillStyle(leafColor, 0.95);
-        gfx.fillEllipse(ox, oy, padW, padH);
-        gfx.fillStyle(mixColor(leafColor, 0xcbe9d0, 0.22 * vitality), 0.9);
-        gfx.fillEllipse(ox - 1.5 * scale, oy - 1 * scale, padW * 0.65, padH * 0.42);
-        gfx.lineStyle(1, mixColor(leafColor, 0x1f3b28, 0.42), 0.75);
-        gfx.beginPath();
-        gfx.moveTo(ox - padW * 0.08, oy);
-        gfx.lineTo(ox + padW * 0.2, oy - padH * 0.42);
-        gfx.strokePath();
-      }
-
-      if (stage >= 1) {
-        gfx.lineStyle(1.1, stemColor, 0.82);
-        gfx.beginPath();
-        gfx.moveTo(0, -12 * scale);
-        gfx.lineTo(0, -22 * scale);
-        gfx.strokePath();
-      }
-
-      if (stage >= 2) {
-        const petalCount = stage >= 3 ? 8 : 5;
-        const bloomY = -23 * scale;
-        for (let i = 0; i < petalCount; i += 1) {
-          const angle = (i / petalCount) * Math.PI * 2;
-          const px = Math.cos(angle) * 6.5 * scale;
-          const py = bloomY + Math.sin(angle) * 4 * scale;
-          gfx.fillStyle(bloomColor, 0.96);
-          gfx.fillEllipse(px, py, 7 * scale, 4.5 * scale);
-        }
-        gfx.fillStyle(0xf4dc74, 1);
-        gfx.fillCircle(0, bloomY, 2.6 * scale);
-      } else if (stage >= 1) {
-        gfx.fillStyle(bloomColor, 0.94);
-        gfx.fillEllipse(0, -22 * scale, 5 * scale, 8 * scale);
-      }
-    } else if (spec.name === 'Cattail') {
-      const stemCount = 3 + stage;
-      for (let i = 0; i < stemCount; i += 1) {
-        const ox = (i - (stemCount - 1) / 2) * 4.8 * scale;
-        const height = (18 + i * 1.8) * scale;
-        const sway = (i % 2 === 0 ? -1 : 1) * scale;
-
-        gfx.lineStyle(2.2 * scale, stemColor, 0.92);
-        gfx.beginPath();
-        gfx.moveTo(ox, 2);
-        gfx.lineTo(ox + sway, -height);
-        gfx.strokePath();
-
-        gfx.lineStyle(1.1 * scale, mixColor(leafColor, 0xbedf99, 0.16), 0.8);
-        gfx.beginPath();
-        gfx.moveTo(ox, -height * 0.4);
-        gfx.lineTo(ox - 7 * scale, -height * 0.12);
-        gfx.strokePath();
-        gfx.beginPath();
-        gfx.moveTo(ox + sway * 0.4, -height * 0.62);
-        gfx.lineTo(ox + 7 * scale, -height * 0.34);
-        gfx.strokePath();
-
-        if (stage >= 1) {
-          gfx.fillStyle(mixColor(spec.color, 0x5d4037, sickness * 0.38), 0.94);
-          gfx.fillRoundedRect(ox + sway - 1.3 * scale, -height * 0.9, 2.6 * scale, 10 * scale, 2 * scale);
-        }
-      }
-    } else {
-      const frondCount = 5 + stage * 2;
-      gfx.lineStyle(1.6 * scale, stemColor, 0.88);
-      gfx.beginPath();
-      gfx.moveTo(0, 2);
-      gfx.lineTo(0, -18 * scale);
-      gfx.strokePath();
-
-      for (let i = 0; i < frondCount; i += 1) {
-        const t = i / Math.max(1, frondCount - 1);
-        const baseY = -4 * scale - t * 16 * scale;
-        const dir = i % 2 === 0 ? -1 : 1;
-        const reach = (8 + stage * 1.6) * scale;
-        gfx.lineStyle(1.05 * scale, leafColor, 0.9);
-        gfx.beginPath();
-        gfx.moveTo(0, baseY);
-        gfx.lineTo(dir * reach, baseY - 4 * scale);
-        gfx.strokePath();
-        for (let j = 0; j < 3; j += 1) {
-          const subT = (j + 1) / 4;
-          const sx = dir * reach * subT;
-          const sy = baseY - 4 * scale * subT;
-          gfx.lineStyle(0.75 * scale, accentColor, 0.78);
-          gfx.beginPath();
-          gfx.moveTo(sx, sy);
-          gfx.lineTo(sx + dir * 2.6 * scale, sy - 2 * scale);
-          gfx.strokePath();
-          gfx.beginPath();
-          gfx.moveTo(sx, sy);
-          gfx.lineTo(sx + dir * 1.8 * scale, sy + 1.8 * scale);
-          gfx.strokePath();
-        }
-      }
-    }
-
-    gfx.setAlpha(0.82 + vitality * 0.18);
+  _refreshPlantArt(p: any) {
+    const obj = this._plantObjects.get(p.id);
+    if (!obj) return;
+    const appearance = `${p.growthStage}:${Math.round(p.growthProgress * 100)}:${Math.round(p.sickness * 20)}`;
+    if (appearance === obj.lastAppearance) return;
+    obj.lastAppearance = appearance;
+    obj.art.setFrame(plantFrame(p.species, p.growthStage));
+    const width = p.species === 'cattail' ? 12 + p.growthProgress * 30 : 20 + p.growthProgress * 40;
+    obj.art.setScale(width / obj.art.frame.width);
+    obj.art.setTint(mixColor(0xffffff, 0xaa9070, p.sickness * 0.7));
+    obj.art.setAlpha(p.species === 'hornwort' ? 0.76 : 1);
+    const area = obj.container.input?.hitArea as Phaser.Geom.Rectangle;
+    if (area) area.setTo(-Math.max(18, width / 2), -Math.max(32, obj.art.displayHeight),
+      Math.max(36, width), Math.max(40, obj.art.displayHeight + 8));
   }
 
   _positionPlantContainer(plantData: any) {
@@ -349,54 +179,42 @@ export default class PlantSystem {
       this.bounds.originX,
       this.bounds.originY
     );
-    const depth = 5 + plantData.tileX + plantData.tileY + plantData.subX * 0.1 + plantData.subY * 0.1;
+    const submerged = plantData.species === 'hornwort';
+    const depth = (submerged ? 4 : 20) + plantData.tileX + plantData.tileY + (plantData.subX + plantData.subY) / 4;
     obj.container.setPosition(screen.x, screen.y);
     obj.container.setDepth(depth);
   }
 
   update(delta: number) {
     this._growthAccum += delta;
-    if (this._growthAccum < 1000) return;
-    this._growthAccum -= 1000;
-
-    const plants = this.storage.getPlants();
-    let changed = false;
-
-    plants.forEach((plantData: any) => {
-      const spec = this.speciesDefs[plantData.species];
-      if (!spec) return;
-      this._ensurePlantState(plantData, spec);
-
-      const growthFactor = (0.45 + (plantData.health ?? 1) * 0.55) * (1 - (plantData.sickness ?? 0) * 0.55);
-      const nextProgress = Math.min(1, (plantData.growthProgress ?? 0) + spec.growthRate * Math.max(0.2, growthFactor));
-      const totalDays = spec.stageDays[spec.stageDays.length - 1];
-      const dayEquivalent = nextProgress * totalDays;
-      let nextStage = 0;
-      spec.stageDays.forEach((d: number, i: number) => {
-        if (dayEquivalent >= d) nextStage = i;
-      });
-
-      if (nextProgress !== plantData.growthProgress || nextStage !== plantData.growthStage) {
-        plantData.growthProgress = nextProgress;
-        plantData.growthStage = nextStage;
-        this.storage.updatePlant(plantData.id, {
-          growthProgress: nextProgress,
-          growthStage: nextStage,
-        });
-        changed = true;
+    const refresh = this._growthAccum >= 250;
+    if (refresh) this._growthAccum = 0;
+    const reduced = this._reducedMotion;
+    for (const p of this.storage.getPlants()) {
+      const obj = this._plantObjects.get(p.id);
+      if (!obj) continue;
+      if (!reduced) {
+        const t = this.scene.time.now * 0.001 + obj.phase;
+        obj.art.rotation = Math.sin(t * 0.7) * (p.species === 'cattail' ? 0.025 : 0.012);
+        obj.art.y = p.species === 'waterlily' ? Math.sin(t) * 0.6 : 0;
       }
+      if (refresh) {
+        this._refreshPlantArt(p);
+        if (this._infoPanelPlantId === p.id) this._syncInfoPanelData(p);
+      }
+    }
+  }
 
-      const obj = this._plantObjects.get(plantData.id);
-      if (obj) this._drawPlant(obj.gfx, spec, plantData);
-      if (this._infoPanelPlantId === plantData.id) this._syncInfoPanelData(plantData);
-    });
-
-    if (changed) this.storage.save();
+  reposition() {
+    this.storage.getPlants().forEach((p: any) => this._positionPlantContainer(p));
   }
 
   _buildInfoPanel() {
     const panel = document.createElement('div');
     panel.id = 'plant-info-panel';
+    panel.className = 'entity-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'Plant details');
     Object.assign(panel.style, {
       position: 'absolute',
       top: '16px',
@@ -417,7 +235,7 @@ export default class PlantSystem {
     panel.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span id="pip-species" style="font-size:11px;color:#8db493;letter-spacing:1px;text-transform:uppercase"></span>
-        <button id="pip-close" style="background:none;border:none;color:#8db493;font-size:16px;cursor:pointer;padding:0 2px;line-height:1">×</button>
+        <button id="pip-close" aria-label="Close plant details" style="background:none;border:none;color:#8db493;font-size:16px;cursor:pointer;padding:0 2px;line-height:1">×</button>
       </div>
       <div id="pip-name" style="font-size:18px;color:#eef7ef;margin-bottom:10px"></div>
       <div id="pip-stage" style="font-size:11px;color:#a8c9ac;margin-bottom:10px"></div>
@@ -454,6 +272,8 @@ export default class PlantSystem {
     if (!plantData || !this._infoPanel) return;
     this._infoPanelPlantId = plantId;
     this._syncInfoPanelData(plantData);
+    const fishPanel = document.getElementById('fish-info-panel');
+    if (fishPanel) fishPanel.style.display = 'none';
     this._infoPanel.style.display = 'block';
     this._infoPanel.style.opacity = '0';
     this._infoPanel.style.transform = 'translateY(-6px)';
@@ -481,7 +301,7 @@ export default class PlantSystem {
     (this._infoPanel.querySelector('#pip-species') as HTMLElement).textContent = spec.name;
     (this._infoPanel.querySelector('#pip-name') as HTMLElement).textContent = `${spec.name} Cluster`;
     (this._infoPanel.querySelector('#pip-stage') as HTMLElement).textContent =
-      `Stage: ${stageLabel} • Day ${ageDays} • ${plantData.isSick ? 'recovering' : 'thriving'}`;
+      `${stageLabel} · ${ageDays} days · ${plantData.condition ?? 'Establishing'}`;
     (this._infoPanel.querySelector('#pip-stats') as HTMLElement).innerHTML = `
       <div style="display:flex;justify-content:space-between">
         <span style="color:#9ab89e">Health</span>
@@ -498,17 +318,18 @@ export default class PlantSystem {
         <div style="height:100%;width:${sicknessPct}%;background:${sicknessCol};border-radius:3px;transition:width 0.5s"></div>
       </div>
       <div style="display:flex;justify-content:space-between">
-        <span style="color:#9ab89e">O₂ emission</span>
-        <span>${stats.oxygenRate.toFixed(4)} / min</span>
+        <span style="color:#9ab89e">Net water O₂</span>
+        <span>${stats.oxygenRate >= 0 ? '+' : ''}${stats.oxygenRate.toFixed(2)} mg/min</span>
       </div>
       <div style="display:flex;justify-content:space-between">
-        <span style="color:#9ab89e">NO₃ absorption</span>
-        <span>${stats.nitrateRate.toFixed(4)} / min</span>
+        <span style="color:#9ab89e">Nitrate uptake</span>
+        <span>${stats.nitrateRate.toFixed(2)} mg N/min</span>
       </div>
       <div style="display:flex;justify-content:space-between">
-        <span style="color:#9ab89e">Effectiveness</span>
-        <span>${Math.round(stats.effectiveness * 100)}%</span>
+        <span style="color:#9ab89e">Growth</span>
+        <span>${Math.round(plantData.growthProgress * 100)}%</span>
       </div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#9ab89e">Ammonium uptake</span><span>${(plantData.ammoniaRate ?? 0).toFixed(2)} mg N/min</span></div>
       <div style="margin-top:6px;color:#88a98d;line-height:1.5">
         ${spec.description}
       </div>`;
@@ -519,7 +340,7 @@ export default class PlantSystem {
     this._infoPanel.style.opacity = '0';
     this._infoPanel.style.transform = 'translateY(-6px)';
     setTimeout(() => {
-      if (this._infoPanel) this._infoPanel.style.display = 'none';
+      if (this._infoPanel && !this._infoPanelPlantId) this._infoPanel.style.display = 'none';
     }, 200);
     this._infoPanelPlantId = null;
   }

@@ -4,9 +4,8 @@
  * Renders the isometric 4×4 pond grid, manages all systems (Fish, Plant,
  * Ecosystem), handles input, and runs the game loop.
  *
- * The pond is drawn procedurally using Phaser Graphics — no spritesheets
- * needed for the initial prototype. Each tile is a diamond with a soft
- * Ghibli-inspired water effect (layered translucent fills + gentle animation).
+ * A continuous isometric water surface shares its coordinates with placement.
+ * The meadow is cached; plant and fish sprites sit in separate depth layers.
  */
 
 import { isoToScreen, screenToIso, subTileToScreen, HALF_W, HALF_H } from '../utils/iso';
@@ -16,13 +15,14 @@ import FishSystem from '../systems/FishSystem';
 import PlantSystem from '../systems/PlantSystem';
 import AudioManager from '../utils/audio';
 import speciesDefs from '../data/species';
+import { plantFrame } from '../data/plantArt';
 
 // ── Ghibli-ish color palette ───────────────────────────────────────────────
 const COLORS = {
-  waterDeep:    0x2d6a4f,
-  waterMid:     0x40916c,
-  waterLight:   0x52b788,
-  waterHighlight: 0x74c69d,
+  waterDeep:    0x174d50,
+  waterMid:     0x287b78,
+  waterLight:   0x55a394,
+  waterHighlight: 0xb8ddc4,
   waterShimmer: 0xa7d8b5,
   edgeStone:    0x6b705c,
   edgeMoss:     0x4a7c59,
@@ -102,6 +102,11 @@ export default class PondScene extends Phaser.Scene {
   declare _placementSelection: PlacementSelection | null;
   declare _lastWaterAnimTime: number;
   declare _lastMeadowAnimTime: number;
+  declare _environmentTexture: Phaser.GameObjects.RenderTexture;
+  declare _nightOverlay: Phaser.GameObjects.Rectangle;
+  declare _placementGrid: Phaser.GameObjects.Graphics;
+  _visualTime = 0;
+  _reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   constructor() {
     super({ key: 'PondScene' });
@@ -112,13 +117,16 @@ export default class PondScene extends Phaser.Scene {
 
     // Grid origin: center of the screen, shifted up a bit
     this.gridOriginX = width / 2;
-    this.gridOriginY = height / 2 - 60;
+    this.gridOriginY = height / 2 - HALF_H * 4 - 12;
     this.gridW = 4;
     this.gridH = 4;
 
     // ── Initialize systems ────────────────────────────────────────────────
     this.storage = new StorageSystem();
     this.storage.load();
+    this.gridW = this.storage.getPond().width;
+    this.gridH = this.storage.getPond().height;
+    this.gridOriginY = height / 2 - HALF_H * (this.gridW + this.gridH) / 2 - 12;
 
     this.ecosystem = new EcosystemSystem(this.storage);
 
@@ -147,13 +155,13 @@ export default class PondScene extends Phaser.Scene {
     this.plantSystem.restoreFromStorage();
 
     // ── Spawn starter fish if new pond ────────────────────────────────────
-    if (this.storage.getFish().length === 0) {
+    if (this.storage.isNewPond) {
       this.fishSystem.spawnFish('koi');
       this.fishSystem.spawnFish('koi');
       this.fishSystem.spawnFish('goldfish');
     }
     // Spawn some starter plants if new pond
-    if (this.storage.getPlants().length === 0) {
+    if (this.storage.isNewPond) {
       this.plantSystem.placePlant('lotus', 1, 1, 2, 2);
       this.plantSystem.placePlant('cattail', 0, 2, 1, 1);
       this.plantSystem.placePlant('hornwort', 2, 3, 2, 2);
@@ -172,7 +180,7 @@ export default class PondScene extends Phaser.Scene {
     });
 
     // ── Scroll-to-zoom ────────────────────────────────────────────────────
-    this._currentZoom = 1.0;
+    this._currentZoom = this._fitPondZoom(width, height);
     this._pinchPrevDistance = null;
     this._lastWaterAnimTime = -Infinity;
     this._lastMeadowAnimTime = -Infinity;
@@ -190,29 +198,62 @@ export default class PondScene extends Phaser.Scene {
     this.scene.launch('UIScene', { storage: this.storage, ecosystem: this.ecosystem });
 
     // ── Handle resize ────────────────────────────────────────────────────
-    this.scale.on('resize', (gameSize: any) => {
+    const onResize = (gameSize: any) => {
       this.gridOriginX = gameSize.width / 2;
-      this.gridOriginY = gameSize.height / 2 - 60;
+      this.gridOriginY = gameSize.height / 2 - HALF_H * (this.gridW + this.gridH) / 2 - 12;
+      pondBounds.originX = this.gridOriginX;
+      pondBounds.originY = this.gridOriginY;
+      this.plantSystem.reposition();
+      this.storage.getFish().forEach((f: any) => this.fishSystem._positionFishContainer(f));
+      this._nightOverlay.setSize(gameSize.width, gameSize.height);
       this._drawPondBackground();
       this._drawTileGrid();
-      this._currentZoom = this._clampZoom(this._currentZoom);
-      this.cameras.main.setZoom(this._clampZoom(this.cameras.main.zoom));
+      this._currentZoom = this._clampZoom(this._fitPondZoom(gameSize.width, gameSize.height));
+      this.cameras.main.setZoom(this._currentZoom);
       this._repositionInventoryTray(gameSize.width, gameSize.height);
       this._updatePlacementPreview(this.input.activePointer);
+    };
+    this.scale.on('resize', onResize);
+    this._nightOverlay = this.add.rectangle(0, 0, width, height, 0x09243b, 0)
+      .setOrigin(0).setScrollFactor(0).setDepth(60);
+    const flush = () => this.storage.save();
+    const visibility = () => {
+      flush();
+      this.ecosystem._tickAccum = 0;
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', visibility);
+    this.input.keyboard?.on('keydown-ESC', () => {
+      this._setPlacementSelection(null);
+      this.fishSystem._closeInfoPanel();
+      this.plantSystem._closeInfoPanel();
+    });
+    this.events.once('shutdown', () => {
+      flush();
+      this.scale.off('resize', onResize);
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', visibility);
+      this._inventoryTray.remove();
     });
   }
 
   update(time: number, delta: number) {
     this._updatePinchZoom();
+    if (document.hidden) return;
     this.ecosystem.update(delta);
-    this.fishSystem.update(delta);
-    this.plantSystem.update(delta);
-    if (time - this._lastWaterAnimTime >= AMBIENT_ANIMATION_INTERVAL_MS) {
-      this._animateWaterShimmer(time);
+    if (!this.ecosystem.paused) {
+      this._visualTime += Math.min(delta, 100);
+      this.fishSystem.update(Math.min(delta, 50));
+      this.plantSystem.update(delta);
+    }
+    if (time - this._lastWaterAnimTime >= (this._reducedMotion ? 1000 : AMBIENT_ANIMATION_INTERVAL_MS)) {
+      this._animateWaterShimmer(this._reducedMotion ? 0 : this._visualTime);
+      const light = this.ecosystem.getLight();
+      this._nightOverlay.setFillStyle(0x09243b, (1 - Math.sqrt(light)) * 0.34);
       this._lastWaterAnimTime = time;
     }
-    if (time - this._lastMeadowAnimTime >= AMBIENT_ANIMATION_INTERVAL_MS) {
-      this._animateMeadow(time);
+    if (time - this._lastMeadowAnimTime >= (this._reducedMotion ? 1000 : 100)) {
+      this._animateMeadow(this._reducedMotion ? 0 : this._visualTime);
       this._lastMeadowAnimTime = time;
     }
     this._updatePlacementPreview(this.input.activePointer);
@@ -223,9 +264,16 @@ export default class PondScene extends Phaser.Scene {
       this._currentZoom = this._clampZoom(this._currentZoom);
       const diff = this._currentZoom - cam.zoom;
       if (Math.abs(diff) > 0.001) {
-        cam.zoom = Phaser.Math.Linear(cam.zoom, this._currentZoom, 0.12);
+        cam.zoom = Phaser.Math.Linear(cam.zoom, this._currentZoom, 1 - Math.exp(-delta / 130));
       }
+      this._nightOverlay.setScale(1 / cam.zoom).setPosition(
+        cam.width * (1 - 1 / cam.zoom) / 2, cam.height * (1 - 1 / cam.zoom) / 2);
     }
+  }
+
+  _fitPondZoom(width: number, height: number) {
+    return Math.min(1.8, (width - 36) / ((this.gridW + this.gridH) * HALF_W),
+      Math.max(120, height - 270) / ((this.gridW + this.gridH) * HALF_H));
   }
 
   _setTargetZoom(nextZoom: number) {
@@ -301,6 +349,13 @@ export default class PondScene extends Phaser.Scene {
 
     // ── Meadow details (grass tufts, flowers, trees) ───────────────────────
     this._drawMeadowDetails(VW, VH, vx, vy, rng);
+    // Bake thousands of static meadow strokes into one draw call.
+    this._environmentTexture?.destroy();
+    this._environmentTexture = this.add.renderTexture(vx, vy, VW, VH).setOrigin(0).setDepth(-9);
+    this._environmentTexture.draw(this._bgGfx, -vx, -vy);
+    this._environmentTexture.draw(this._meadowGfx, -vx, -vy);
+    this._bgGfx.setVisible(false);
+    this._meadowGfx.setVisible(false);
   }
 
   /**
@@ -364,6 +419,16 @@ export default class PondScene extends Phaser.Scene {
       });
     }
 
+    // Only a small foreground sample sways; most grass is part of the cached scene.
+    this._grassTufts.slice(36).forEach(tuft => {
+      for (let b = 0; b < tuft.count; b++) {
+        const ox = (b - (tuft.count - 1) / 2) * tuft.spread;
+        gfx.lineStyle(1.2, tuft.color, 0.85);
+        gfx.lineBetween(tuft.x + ox, tuft.y, tuft.x + ox + 1, tuft.y - tuft.h);
+      }
+    });
+    this._grassTufts = this._grassTufts.slice(0, 36);
+
     // ── Wildflowers ───────────────────────────────────────────────────────
     this._flowerPositions = [];
     const flowerColors = [COLORS.flowerWhite, COLORS.flowerYellow, COLORS.flowerPink, COLORS.flowerBlue, COLORS.flowerPurple];
@@ -373,7 +438,10 @@ export default class PondScene extends Phaser.Scene {
       if (isInPond(fx, fy)) continue;
       const fcolor = flowerColors[Math.floor(rng() * flowerColors.length)];
       const fsize = 2 + rng() * 3;
-      this._flowerPositions.push({ x: fx, y: fy, color: fcolor, size: fsize, phase: rng() * Math.PI * 2 });
+      gfx.fillStyle(fcolor, 0.9);
+      gfx.fillCircle(fx, fy - 6, fsize);
+      gfx.fillStyle(COLORS.flowerYellow, 1);
+      gfx.fillCircle(fx, fy - 6, fsize * 0.4);
       // Static stem
       gfx.lineStyle(1, COLORS.grassDark, 0.7);
       gfx.beginPath();
@@ -450,10 +518,10 @@ export default class PondScene extends Phaser.Scene {
     // Draw stone border — slightly larger diamond around the 4×4 grid
     const PADDING = 8;
     const corners = [
-      isoToScreen(-0.5, -0.5, this.gridOriginX, this.gridOriginY),
-      isoToScreen(this.gridW - 0.5, -0.5, this.gridOriginX, this.gridOriginY),
-      isoToScreen(this.gridW - 0.5, this.gridH - 0.5, this.gridOriginX, this.gridOriginY),
-      isoToScreen(-0.5, this.gridH - 0.5, this.gridOriginX, this.gridOriginY),
+      isoToScreen(0, 0, this.gridOriginX, this.gridOriginY),
+      isoToScreen(this.gridW, 0, this.gridOriginX, this.gridOriginY),
+      isoToScreen(this.gridW, this.gridH, this.gridOriginX, this.gridOriginY),
+      isoToScreen(0, this.gridH, this.gridOriginX, this.gridOriginY),
     ];
 
     // Outer stone border
@@ -478,73 +546,42 @@ export default class PondScene extends Phaser.Scene {
   }
 
   _drawTileGrid() {
-    if (this._tileGfx) this._tileGfx.destroy();
-    this._tileGfx = this.add.graphics();
-    this._tileGfx.setDepth(0);
-
-    for (let y = 0; y < this.gridH; y++) {
-      for (let x = 0; x < this.gridW; x++) {
-        this._drawTile(this._tileGfx, x, y);
-      }
+    this._tileGfx?.destroy();
+    this._placementGrid?.destroy();
+    const gfx = this.add.graphics().setDepth(0);
+    this._tileGfx = gfx;
+    const corner = (x: number, y: number) => isoToScreen(x, y, this.gridOriginX, this.gridOriginY);
+    const polygon = [corner(0, 0), corner(this.gridW, 0), corner(this.gridW, this.gridH), corner(0, this.gridH)];
+    gfx.fillStyle(COLORS.waterMid, 1);
+    gfx.fillPoints(polygon, true);
+    // Concentric bathymetry gives continuous shallow edges and a darker basin.
+    for (let i = 1; i <= 18; i++) {
+      const inset = i * 0.035;
+      gfx.fillStyle(COLORS.waterDeep, 0.045);
+      gfx.fillPoints([corner(inset, inset), corner(this.gridW - inset, inset),
+        corner(this.gridW - inset, this.gridH - inset), corner(inset, this.gridH - inset)], true);
     }
-  }
-
-  _drawTile(gfx: Phaser.GameObjects.Graphics, isoX: number, isoY: number) {
-    const { x: cx, y: cy } = isoToScreen(isoX, isoY, this.gridOriginX, this.gridOriginY);
-
-    // Diamond points for this tile
-    const topX = cx, topY = cy - HALF_H;
-    const rightX = cx + HALF_W, rightY = cy;
-    const botX = cx, botY = cy + HALF_H;
-    const leftX = cx - HALF_W, leftY = cy;
-
-    // Water fill — layered for depth effect
-    // Base deep water
-    gfx.fillStyle(COLORS.waterDeep, 0.9);
-    gfx.fillPoints([
-      { x: topX, y: topY },
-      { x: rightX, y: rightY },
-      { x: botX, y: botY },
-      { x: leftX, y: leftY },
-    ], true);
-
-    // Mid-tone overlay — slightly offset for sense of depth
-    gfx.fillStyle(COLORS.waterMid, 0.4);
-    gfx.fillPoints([
-      { x: topX, y: topY + 2 },
-      { x: rightX - 4, y: rightY },
-      { x: botX, y: botY - 2 },
-      { x: leftX + 4, y: leftY },
-    ], true);
-
-    // Light water edge highlight (top-left lit face)
-    gfx.lineStyle(1, COLORS.waterHighlight, 0.3);
-    gfx.beginPath();
-    gfx.moveTo(topX, topY);
-    gfx.lineTo(rightX, rightY);
-    gfx.strokePath();
-    gfx.beginPath();
-    gfx.moveTo(topX, topY);
-    gfx.lineTo(leftX, leftY);
-    gfx.strokePath();
-
-    // Grid lines — very subtle
-    gfx.lineStyle(0.5, 0x1a3a2a, 0.3);
-    gfx.beginPath();
-    gfx.moveTo(topX, topY);
-    gfx.lineTo(rightX, rightY);
-    gfx.lineTo(botX, botY);
-    gfx.lineTo(leftX, leftY);
-    gfx.closePath();
-    gfx.strokePath();
+    gfx.lineStyle(2, COLORS.waterHighlight, 0.35);
+    gfx.strokePoints(polygon, true);
+    const grid = this.add.graphics().setDepth(2).setVisible(Boolean(this._placementSelection));
+    this._placementGrid = grid;
+    grid.lineStyle(1, 0xc4e5cf, 0.22);
+    for (let x = 1; x < this.gridW; x++) {
+      const a = corner(x, 0), b = corner(x, this.gridH);
+      grid.lineBetween(a.x, a.y, b.x, b.y);
+    }
+    for (let y = 1; y < this.gridH; y++) {
+      const a = corner(0, y), b = corner(this.gridW, y);
+      grid.lineBetween(a.x, a.y, b.x, b.y);
+    }
   }
 
   // ── Water shimmer ──────────────────────────────────────────────────────
 
   _createWaterShimmer() {
     this._shimmerGfx = this.add.graphics();
-    this._shimmerGfx.setDepth(1);
-    this._shimmerGfx.setAlpha(0.15);
+    this._shimmerGfx.setDepth(18);
+    this._shimmerGfx.setAlpha(0.45);
   }
 
   // ── Inventory Tray ────────────────────────────────────────────────────────
@@ -614,6 +651,8 @@ export default class PondScene extends Phaser.Scene {
 
     const hint = document.createElement('div');
     hint.dataset.placementHint = '1';
+    hint.id = 'placement-hint';
+    hint.setAttribute('role', 'status');
     Object.assign(hint.style, {
       minWidth: '180px',
       maxWidth: '220px',
@@ -660,7 +699,10 @@ export default class PondScene extends Phaser.Scene {
     const b = colorInt & 0xff;
     const hex = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 
-    const card = document.createElement('div');
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.setAttribute('aria-label', `Place ${name}`);
+    card.setAttribute('aria-pressed', 'false');
     card.dataset.type = type;
     card.dataset.species = speciesKey;
     card.dataset.trayCard = '1';
@@ -679,17 +721,13 @@ export default class PondScene extends Phaser.Scene {
       position: 'relative',
     });
 
-    // Coloured dot preview
-    const dot = document.createElement('div');
-    Object.assign(dot.style, {
-      width: type === 'fish' ? '22px' : '16px',
-      height: type === 'fish' ? '12px' : '16px',
-      borderRadius: type === 'fish' ? '60% 40% 40% 60%' : '50%',
-      background: hex,
-      marginBottom: '4px',
-      boxShadow: `0 0 6px rgba(${r},${g},${b},0.6)`,
-    });
-    card.appendChild(dot);
+    const preview = document.createElement('img');
+    preview.className = 'tray-art';
+    preview.alt = '';
+    preview.draggable = false;
+    preview.src = type === 'fish' ? `assets/images/fish_${speciesKey}_e.png`
+      : this.textures.getBase64('plants', plantFrame(speciesKey, def.stages.length - 1));
+    card.appendChild(preview);
 
     const lbl = document.createElement('span');
     Object.assign(lbl.style, {
@@ -787,6 +825,7 @@ export default class PondScene extends Phaser.Scene {
       const active = this._placementSelection?.type === card.dataset.type
         && this._placementSelection?.species === card.dataset.species;
       card.dataset.active = active ? '1' : '0';
+      card.setAttribute('aria-pressed', String(active));
       card.style.transform = active ? 'translateY(-2px) scale(1.08)' : '';
       card.style.boxShadow = active ? `0 0 18px rgba(${r},${g},${b},0.48)` : '';
       card.style.background = active ? `rgba(${r},${g},${b},0.32)` : `rgba(${r},${g},${b},0.18)`;
@@ -808,13 +847,14 @@ export default class PondScene extends Phaser.Scene {
     const r = (colorInt >> 16) & 0xff;
     const g = (colorInt >> 8) & 0xff;
     const b = colorInt & 0xff;
-    this._placementHintEl.textContent = `Tap the pond to place ${spec?.name ?? this._placementSelection.species}. Tap the lit button again to cancel.`;
+    this._placementHintEl.textContent = `Tap ${spec?.habitat === 'marginal' ? 'an edge tile' : 'the pond'} to place ${spec?.name ?? this._placementSelection.species}. Tap again to cancel.`;
     this._placementHintEl.style.color = `rgba(${r},${g},${b},0.96)`;
     this._placementHintEl.style.borderColor = `rgba(${r},${g},${b},0.4)`;
   }
 
   _setPlacementSelection(selection: PlacementSelection | null) {
     this._placementSelection = selection;
+    this._placementGrid?.setVisible(Boolean(selection));
     this._refreshTraySelection();
     this.fishSystem.setInteractivityEnabled(!selection);
     this.plantSystem.setInteractivityEnabled(!selection);
@@ -835,8 +875,9 @@ export default class PondScene extends Phaser.Scene {
       return null;
     }
 
-    const worldX = pointer.worldX;
-    const worldY = pointer.worldY;
+    const world = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    const worldX = world.x;
+    const worldY = world.y;
     const { isoX, isoY } = screenToIso(worldX, worldY, this.gridOriginX, this.gridOriginY);
     if (isoX < 0 || isoY < 0 || isoX >= this.gridW || isoY >= this.gridH) {
       return null;
@@ -865,7 +906,7 @@ export default class PondScene extends Phaser.Scene {
     const localY = Phaser.Math.Clamp(isoY - tileY, 0, 0.999);
     const preferredSubX = Math.min(3, Math.floor(localX * 4));
     const preferredSubY = Math.min(3, Math.floor(localY * 4));
-    const slot = this.plantSystem.findPlacementSlot(tileX, tileY, preferredSubX, preferredSubY);
+    const slot = this.plantSystem.findPlacementSlot(tileX, tileY, preferredSubX, preferredSubY, null, this._placementSelection.species);
     const previewSubX = slot?.subX ?? preferredSubX;
     const previewSubY = slot?.subY ?? preferredSubY;
     const screen = subTileToScreen(tileX, tileY, previewSubX, previewSubY, this.gridOriginX, this.gridOriginY);
@@ -924,7 +965,7 @@ export default class PondScene extends Phaser.Scene {
   }
 
   _handlePlacementPointerDown(pointer: Phaser.Input.Pointer) {
-    if (!this._placementSelection) return;
+    if (!this._placementSelection || this._pinchPrevDistance !== null) return;
 
     const preview = this._resolvePlacementPreview(pointer);
     if (!preview || !preview.valid) return;
@@ -956,21 +997,15 @@ export default class PondScene extends Phaser.Scene {
     if (!this._shimmerGfx) return;
     this._shimmerGfx.clear();
 
-    // Gentle ripple highlights that drift across tiles
-    const t = time * 0.0003;
-    for (let y = 0; y < this.gridH; y++) {
-      for (let x = 0; x < this.gridW; x++) {
-        const { x: cx, y: cy } = isoToScreen(x, y, this.gridOriginX, this.gridOriginY);
-        // Two overlapping sine patterns for organic feel
-        const shimmer1 = Math.sin(t + x * 1.7 + y * 0.9) * 0.5 + 0.5;
-        const shimmer2 = Math.cos(t * 0.7 + x * 0.5 + y * 2.1) * 0.5 + 0.5;
-        const alpha = (shimmer1 * 0.3 + shimmer2 * 0.2);
-
-        this._shimmerGfx.fillStyle(COLORS.waterShimmer, alpha);
-        const offX = Math.sin(t + x) * 3;
-        const offY = Math.cos(t * 0.8 + y) * 2;
-        this._shimmerGfx.fillEllipse(cx + offX, cy + offY, 20 + shimmer1 * 15, 8 + shimmer2 * 6);
-      }
+    const t = time * 0.00025;
+    for (let i = 0; i < 22; i++) {
+      const x = 0.3 + ((i * 0.61803398875) % 1) * (this.gridW - 0.6);
+      const y = 0.3 + ((i * 0.41421356237) % 1) * (this.gridH - 0.6);
+      const p = isoToScreen(x, y, this.gridOriginX, this.gridOriginY);
+      const wave = Math.sin(t + i * 1.7);
+      this._shimmerGfx.lineStyle(0.8, 0xc6e9db, 0.08 + (wave + 1) * 0.05);
+      const w = 8 + (Math.sin(t * 0.7 + i) + 1) * 8;
+      this._shimmerGfx.lineBetween(p.x - w, p.y + wave * 2, p.x + w, p.y + wave * 2 - 1);
     }
   }
 }
