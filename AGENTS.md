@@ -264,3 +264,9 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - Static meadow strokes are baked to a render texture. Only 36 tufts animate at 10 FPS. Plant frames/tints refresh only when appearance changes, and the DOM HUD refreshes at 4 FPS.
 - Coincident fish collision fallback must keep an epsilon distance; replacing it with 1 reverses the overlap correction. Normal positioning must not overwrite a jumping fish's arc.
 - 2026-09-11 verification: deterministic chemistry/accounting tests, 45-day simulation, placement geometry and fish motion regression tests; strict typecheck and production build passed. Browser/end-to-end checks were not run in this session.
+
+## October 2026 dependency review
+
+- A lockfile-only refresh within the existing direct ranges resolves Vite 6.4.4, PostCSS 8.5.30, nanoid 3.3.20, picomatch 4.0.7, source-map-js 1.2.2, and patched ws. Node 22 clean `npm ci`, all 16 deterministic tests, strict typecheck, and production build passed. Preserve `public/CNAME` and the relative Vite asset base when reviewing deployment.
+- The live npm audit still reports six moderate package findings through `@farcaster/miniapp-sdk` and its transitive `@solana/web3.js`, `jayson`, `stream-json`, and `uuid`. The audit lists no compatible fix for those chains. The SDK's `actions.ready()` call is used in `src/main.ts`, so removing or overriding it requires a Farcaster miniapp behavior check. Do not claim the lockfile refresh clears these moderate findings.
+- Pages workflow runs on main/manual only and deploys after build; draft PRs have no CI run. Keep dependency changes on a review branch until release verification.
