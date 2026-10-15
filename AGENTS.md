@@ -270,3 +270,10 @@ npm run verify:placement-social -- --url http://127.0.0.1:4174/
 - A lockfile-only refresh within the existing direct ranges resolves Vite 6.4.4, PostCSS 8.5.30, nanoid 3.3.20, picomatch 4.0.7, source-map-js 1.2.2, and patched ws. Node 22 clean `npm ci`, all 16 deterministic tests, strict typecheck, and production build passed. Preserve `public/CNAME` and the relative Vite asset base when reviewing deployment.
 - The live npm audit still reports six moderate package findings through `@farcaster/miniapp-sdk` and its transitive `@solana/web3.js`, `jayson`, `stream-json`, and `uuid`. The audit lists no compatible fix for those chains. The SDK's `actions.ready()` call is used in `src/main.ts`, so removing or overriding it requires a Farcaster miniapp behavior check. Do not claim the lockfile refresh clears these moderate findings.
 - Pages workflow runs on main/manual only and deploys after build; draft PRs have no CI run. Keep dependency changes on a review branch until release verification.
+
+## Cloudflare static hosting
+
+Native main builds use the original generator plus build:cloudflare postprocessing.
+Run the existing meaningful tests/typecheck and npm run check:deploy. Pages/source
+recovery remains; credentials stay in Cloudflare and previews stay off. Local saves,
+service-worker paths and integration behavior are not changed by hosting.

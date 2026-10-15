@@ -151,3 +151,11 @@ See [the simulation specification](docs/SIMULATION.md) for implemented processes
   - [ ] StorageSystem swappable between localStorage and MUD adapter
   - [ ] Wallet connect flow works in static HTML context
   - [ ] On-chain state reads/writes correctly
+
+### Native Cloudflare hosting
+
+- **Stability**: in-progress
+- **Description**: Native main publishing preserves the existing app and recovery source.
+- **Test Criteria**:
+  - [ ] Locked install, existing unit/type gates and Worker dry run pass.
+  - [ ] Exact native version/routes, public HTTPS/assets/404, browser rendering and usage metrics pass.
