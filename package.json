@@ -27,5 +27,6 @@
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.2.3",
     "phaser": "^3.88.2"
-  }
+  },
+  "license": "Apache-2.0"
 }
